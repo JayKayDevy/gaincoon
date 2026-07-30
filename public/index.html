@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Gym Buddy</title>
+<link rel="manifest" href="/manifest.json" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<meta name="theme-color" content="#0d0d0f" />
+<style>
+  :root {
+    --bg: #0d0d0f;
+    --surface: #17171b;
+    --border: #2a2a30;
+    --text: #f2f2f2;
+    --muted: #8a8a92;
+    --accent: #ff6b35;
+    --danger: #ff4d4d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 20px 20px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  header h1 { font-size: 1.2rem; margin: 0; }
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  .card {
+    width: 100%;
+    max-width: 360px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    margin-top: 40px;
+  }
+  .card h2 { margin-top: 0; font-size: 1.1rem; }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin: 14px 0 6px; }
+  input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 1rem;
+  }
+  button {
+    width: 100%;
+    margin-top: 20px;
+    padding: 12px;
+    background: var(--accent);
+    color: #111;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  button.link {
+    background: none;
+    color: var(--muted);
+    text-decoration: underline;
+    font-weight: 400;
+    margin-top: 12px;
+  }
+  .error { color: var(--danger); font-size: 0.85rem; margin-top: 12px; min-height: 1em; }
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    margin-top: 60px;
+    max-width: 320px;
+  }
+  #logout { width: auto; margin: 0; padding: 8px 14px; font-size: 0.85rem; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<header id="app-header" class="hidden">
+  <h1>Gym Buddy</h1>
+  <button id="logout">Abmelden</button>
+</header>
+
+<main>
+  <section id="auth-view" class="card">
+    <h2 id="auth-title">Anmelden</h2>
+    <form id="auth-form">
+      <div id="name-field" class="hidden">
+        <label for="name">Name</label>
+        <input id="name" type="text" autocomplete="name" />
+      </div>
+      <label for="email">E-Mail</label>
+      <input id="email" type="email" required autocomplete="email" />
+      <label for="password">Passwort</label>
+      <input id="password" type="password" required autocomplete="current-password" />
+      <button type="submit" id="auth-submit">Anmelden</button>
+      <p class="error" id="auth-error"></p>
+    </form>
+    <button class="link" id="auth-toggle">Noch kein Konto? Registrieren</button>
+  </section>
+
+  <section id="dashboard-view" class="hidden">
+    <div class="empty">
+      <p>Willkommen, <span id="user-name"></span>!</p>
+      <p>Noch keine Trainingstage angelegt. Das Feature zum Anlegen von Übungen & Gewichts-Tracking kommt als Nächstes.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+  const authView = document.getElementById("auth-view");
+  const dashboardView = document.getElementById("dashboard-view");
+  const appHeader = document.getElementById("app-header");
+  const authForm = document.getElementById("auth-form");
+  const authTitle = document.getElementById("auth-title");
+  const authToggle = document.getElementById("auth-toggle");
+  const authSubmit = document.getElementById("auth-submit");
+  const authError = document.getElementById("auth-error");
+  const nameField = document.getElementById("name-field");
+  const userNameEl = document.getElementById("user-name");
+  const logoutBtn = document.getElementById("logout");
+
+  let mode = "login";
+
+  authToggle.addEventListener("click", () => {
+    mode = mode === "login" ? "register" : "login";
+    const isRegister = mode === "register";
+    authTitle.textContent = isRegister ? "Registrieren" : "Anmelden";
+    authSubmit.textContent = isRegister ? "Registrieren" : "Anmelden";
+    authToggle.textContent = isRegister ? "Schon ein Konto? Anmelden" : "Noch kein Konto? Registrieren";
+    nameField.classList.toggle("hidden", !isRegister);
+    authError.textContent = "";
+  });
+
+  authForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    authError.textContent = "";
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    const name = document.getElementById("name").value.trim();
+    const endpoint = mode === "register" ? "/api/register" : "/api/login";
+    const body = mode === "register" ? { name, email, password } : { email, password };
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fehler");
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("user", JSON.stringify(data.user));
+      showDashboard(data.user);
+    } catch (err) {
+      authError.textContent = err.message;
+    }
+  });
+
+  logoutBtn.addEventListener("click", () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    dashboardView.classList.add("hidden");
+    appHeader.classList.add("hidden");
+    authView.classList.remove("hidden");
+  });
+
+  function showDashboard(user) {
+    authView.classList.add("hidden");
+    dashboardView.classList.remove("hidden");
+    appHeader.classList.remove("hidden");
+    userNameEl.textContent = user.name;
+  }
+
+  (async function init() {
+    const token = localStorage.getItem("token");
+    const user = localStorage.getItem("user");
+    if (token && user) {
+      showDashboard(JSON.parse(user));
+    }
+  })();
+
+  if ("serviceWorker" in navigator) {
+    // Platzhalter für spätere Offline-Unterstützung
+  }
+</script>
+</body>
+</html>
