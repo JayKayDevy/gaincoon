@@ -33,6 +33,8 @@ async function initDB() {
         name VARCHAR(100) NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
+        onboarding_status VARCHAR(20) NOT NULL DEFAULT 'not_started',
+        onboarding_step INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW()
       );
 
@@ -73,6 +75,10 @@ async function initDB() {
       );
     `);
     await client.query(`DROP TABLE IF EXISTS exercise_logs CASCADE;`);
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_status VARCHAR(20) NOT NULL DEFAULT 'not_started';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_step INTEGER NOT NULL DEFAULT 0;
+    `);
   } finally {
     client.release();
   }
@@ -107,7 +113,7 @@ app.post("/api/register", async (req, res) => {
     const password_hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
       `INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3)
-       RETURNING id, name, email`,
+       RETURNING id, name, email, onboarding_status, onboarding_step`,
       [name, email, password_hash]
     );
     const user = result.rows[0];
@@ -133,7 +139,13 @@ app.post("/api/login", async (req, res) => {
       return res.status(401).json({ error: "E-Mail oder Passwort falsch" });
     }
     res.json({
-      user: { id: user.id, name: user.name, email: user.email },
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        onboarding_status: user.onboarding_status,
+        onboarding_step: user.onboarding_step,
+      },
       token: signToken(user),
     });
   } catch (err) {
@@ -143,9 +155,37 @@ app.post("/api/login", async (req, res) => {
 });
 
 app.get("/api/me", requireAuth, async (req, res) => {
-  const result = await pool.query("SELECT id, name, email FROM users WHERE id = $1", [req.user.id]);
+  const result = await pool.query(
+    "SELECT id, name, email, onboarding_status, onboarding_step FROM users WHERE id = $1",
+    [req.user.id]
+  );
   if (!result.rows[0]) return res.status(404).json({ error: "Nutzer nicht gefunden" });
   res.json({ user: result.rows[0] });
+});
+
+// ── Onboarding ────────────────────────────────────────────────────────────────
+
+app.get("/api/onboarding", requireAuth, async (req, res) => {
+  const result = await pool.query(
+    "SELECT onboarding_status, onboarding_step FROM users WHERE id = $1",
+    [req.user.id]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Nutzer nicht gefunden" });
+  res.json(result.rows[0]);
+});
+
+app.patch("/api/onboarding", requireAuth, async (req, res) => {
+  const { step, completed } = req.body || {};
+  if (!Number.isInteger(step) || step < 0) {
+    return res.status(400).json({ error: "step muss eine nicht-negative Ganzzahl sein" });
+  }
+  const status = completed ? "completed" : "in_progress";
+  const result = await pool.query(
+    `UPDATE users SET onboarding_status = $1, onboarding_step = $2
+     WHERE id = $3 RETURNING onboarding_status, onboarding_step`,
+    [status, step, req.user.id]
+  );
+  res.json(result.rows[0]);
 });
 
 // ── Workout days & exercises ─────────────────────────────────────────────────

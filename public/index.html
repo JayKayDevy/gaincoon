@@ -238,6 +238,12 @@
     </div>
   </div>
 
+  <section id="onboarding-view" class="card hidden">
+    <h2 id="onboarding-step-title"></h2>
+    <p id="onboarding-step-text" class="muted"></p>
+    <button type="button" id="onboarding-next-btn">Weiter</button>
+  </section>
+
   <section id="dashboard-view" class="hidden">
     <div class="dashboard-inner">
       <div id="days-list"></div>
@@ -308,6 +314,11 @@
   const logoutBtn = document.getElementById("logout");
   const waveAnimation = document.getElementById("wave-animation");
   const waveImg = document.getElementById("wave-img");
+
+  const onboardingView = document.getElementById("onboarding-view");
+  const onboardingStepTitle = document.getElementById("onboarding-step-title");
+  const onboardingStepText = document.getElementById("onboarding-step-text");
+  const onboardingNextBtn = document.getElementById("onboarding-next-btn");
 
   const daysList = document.getElementById("days-list");
   const emptyState = document.getElementById("empty-state");
@@ -421,7 +432,7 @@
       const data = await apiFetch(endpoint, { method: "POST", body: JSON.stringify(body) });
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
-      showDashboard(data.user);
+      routeAfterAuth(data.user);
     } catch (err) {
       authError.textContent = err.message;
     }
@@ -431,6 +442,7 @@
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     dashboardView.classList.add("hidden");
+    onboardingView.classList.add("hidden");
     appHeader.classList.add("hidden");
     authView.classList.remove("hidden");
     mode = "login";
@@ -445,19 +457,81 @@
 
   logoutBtn.addEventListener("click", doLogout);
 
-  function showDashboard(user) {
+  // ── Onboarding (Status-Maschine + Persistenz; die eigentlichen Frage-Screens
+  //    folgen als eigene Arbeitspakete) ─────────────────────────────────────
+
+  const ONBOARDING_STEPS = [
+    { title: "Willkommen bei Gaincoon!", text: "Lass uns kurz dein Training einrichten." },
+    { title: "Trainingsziel", text: "(folgt als nächstes Arbeitspaket)" },
+    { title: "Trainingstage pro Woche", text: "(folgt als nächstes Arbeitspaket)" },
+    { title: "Mögliche Wochentage", text: "(folgt als nächstes Arbeitspaket)" },
+    { title: "Dauer einer Trainingseinheit", text: "(folgt als nächstes Arbeitspaket)" },
+  ];
+
+  let onboardingStep = 0;
+
+  function routeAfterAuth(user) {
     authView.classList.add("hidden");
-    dashboardView.classList.remove("hidden");
     appHeader.classList.remove("hidden");
     userNameEl.textContent = user.name;
+    if (user.onboarding_status === "completed") {
+      showDashboard();
+    } else {
+      showOnboarding(user);
+    }
+  }
+
+  function showDashboard() {
+    onboardingView.classList.add("hidden");
+    dashboardView.classList.remove("hidden");
     loadDays();
   }
+
+  function showOnboarding(user) {
+    dashboardView.classList.add("hidden");
+    onboardingView.classList.remove("hidden");
+    onboardingStep = user.onboarding_status === "in_progress" ? user.onboarding_step : 0;
+    renderOnboardingStep();
+  }
+
+  function renderOnboardingStep() {
+    const step = ONBOARDING_STEPS[onboardingStep] || ONBOARDING_STEPS[0];
+    onboardingStepTitle.textContent = step.title;
+    onboardingStepText.textContent = step.text;
+    onboardingNextBtn.textContent =
+      onboardingStep === ONBOARDING_STEPS.length - 1 ? "Fertig" : "Weiter";
+  }
+
+  onboardingNextBtn.addEventListener("click", async () => {
+    const isLast = onboardingStep === ONBOARDING_STEPS.length - 1;
+    try {
+      const result = await apiFetch("/api/onboarding", {
+        method: "PATCH",
+        body: JSON.stringify({
+          step: isLast ? onboardingStep : onboardingStep + 1,
+          completed: isLast,
+        }),
+      });
+      const storedUser = JSON.parse(localStorage.getItem("user"));
+      storedUser.onboarding_status = result.onboarding_status;
+      storedUser.onboarding_step = result.onboarding_step;
+      localStorage.setItem("user", JSON.stringify(storedUser));
+      if (isLast) {
+        showDashboard();
+      } else {
+        onboardingStep = result.onboarding_step;
+        renderOnboardingStep();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  });
 
   (async function init() {
     const token = localStorage.getItem("token");
     const user = localStorage.getItem("user");
     if (token && user) {
-      showDashboard(JSON.parse(user));
+      routeAfterAuth(JSON.parse(user));
     } else {
       playLoginIntro();
     }
