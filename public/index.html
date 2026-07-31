@@ -94,12 +94,68 @@
   }
   #logout { width: auto; margin: 0; padding: 8px 14px; font-size: 0.85rem; }
   .hidden { display: none; }
+
+  select {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 1rem;
+  }
+  .dashboard-inner { width: 100%; max-width: 480px; }
+  .day-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .day-header { display: flex; justify-content: space-between; align-items: center; }
+  .day-header h3 { margin: 0; font-size: 1rem; }
+  .icon-btn {
+    width: auto;
+    margin: 0;
+    padding: 2px 8px;
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .exercise-row { border-top: 1px solid var(--border); padding: 10px 0; }
+  .exercise-main { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .exercise-name { flex: 1; }
+  .exercise-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+  .btn-small { width: auto; margin: 0; padding: 6px 12px; font-size: 0.85rem; }
+  .log-form { margin-top: 10px; padding-top: 4px; }
+  .row-2 { display: flex; gap: 10px; }
+  .row-2 > div { flex: 1; }
+  .feeling-group { display: flex; gap: 6px; margin-top: 6px; }
+  .feeling-btn {
+    flex: 1;
+    width: auto;
+    margin: 0;
+    padding: 8px 4px;
+    font-size: 0.78rem;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .feeling-btn.active { background: var(--accent); color: #111; border-color: var(--accent); }
+  .preset-hint { color: var(--muted); font-size: 0.85rem; margin: 4px 0 10px; }
+  .add-exercise-form { margin-top: 10px; }
+  .add-exercise-form input { font-size: 0.9rem; padding: 8px 10px; }
+  .muted { color: var(--muted); font-size: 0.85rem; }
 </style>
 </head>
 <body>
 
 <header id="app-header" class="hidden">
-  <h1>Gym Buddy</h1>
+  <h1>Gym Buddy · <span id="user-name"></span></h1>
   <button id="logout">Abmelden</button>
 </header>
 
@@ -122,9 +178,27 @@
   </section>
 
   <section id="dashboard-view" class="hidden">
-    <div class="empty">
-      <p>Willkommen, <span id="user-name"></span>!</p>
-      <p>Noch keine Trainingstage angelegt. Das Feature zum Anlegen von Übungen & Gewichts-Tracking kommt als Nächstes.</p>
+    <div class="dashboard-inner">
+      <div id="days-list"></div>
+
+      <div id="empty-state" class="empty hidden">
+        <p>Noch keine Trainingstage angelegt.</p>
+      </div>
+
+      <button type="button" id="add-day-btn" class="secondary">+ Trainingstag</button>
+
+      <div id="add-day-card" class="card hidden">
+        <h2>Neuer Trainingstag</h2>
+        <form id="add-day-form">
+          <label for="day-weekday">Wochentag</label>
+          <select id="day-weekday"></select>
+          <label for="day-name">Name (optional)</label>
+          <input id="day-name" type="text" placeholder="z.B. Push Day" />
+          <button type="submit">Speichern</button>
+          <button type="button" class="link" id="day-cancel">Abbrechen</button>
+          <p class="error" id="day-form-error"></p>
+        </form>
+      </div>
     </div>
   </section>
 </main>
@@ -141,6 +215,56 @@
   const nameField = document.getElementById("name-field");
   const userNameEl = document.getElementById("user-name");
   const logoutBtn = document.getElementById("logout");
+
+  const daysList = document.getElementById("days-list");
+  const emptyState = document.getElementById("empty-state");
+  const addDayBtn = document.getElementById("add-day-btn");
+  const addDayCard = document.getElementById("add-day-card");
+  const addDayForm = document.getElementById("add-day-form");
+  const dayWeekdaySelect = document.getElementById("day-weekday");
+  const dayNameInput = document.getElementById("day-name");
+  const dayCancelBtn = document.getElementById("day-cancel");
+  const dayFormError = document.getElementById("day-form-error");
+
+  const WEEKDAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  const WEEKDAY_LABELS = {
+    mon: "Montag", tue: "Dienstag", wed: "Mittwoch", thu: "Donnerstag",
+    fri: "Freitag", sat: "Samstag", sun: "Sonntag",
+  };
+  const FEELING_LABELS = { too_light: "Zu leicht", comfortable: "Passt", too_heavy: "Zu schwer" };
+
+  for (const wd of WEEKDAY_ORDER) {
+    const opt = document.createElement("option");
+    opt.value = wd;
+    opt.textContent = WEEKDAY_LABELS[wd];
+    dayWeekdaySelect.appendChild(opt);
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str ?? "";
+    return div.innerHTML;
+  }
+
+  async function apiFetch(path, options = {}) {
+    const token = localStorage.getItem("token");
+    const res = await fetch(path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    if (res.status === 401) {
+      doLogout();
+      throw new Error("Sitzung abgelaufen, bitte erneut anmelden");
+    }
+    if (res.status === 204) return null;
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || "Fehler");
+    return data;
+  }
 
   let mode = "login";
 
@@ -179,19 +303,29 @@
     }
   });
 
-  logoutBtn.addEventListener("click", () => {
+  function doLogout() {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     dashboardView.classList.add("hidden");
     appHeader.classList.add("hidden");
     authView.classList.remove("hidden");
-  });
+    mode = "login";
+    authTitle.textContent = "Anmelden";
+    authSubmit.textContent = "Anmelden";
+    authToggle.textContent = "Noch kein Konto? Registrieren";
+    nameField.classList.add("hidden");
+    authError.textContent = "";
+    authForm.reset();
+  }
+
+  logoutBtn.addEventListener("click", doLogout);
 
   function showDashboard(user) {
     authView.classList.add("hidden");
     dashboardView.classList.remove("hidden");
     appHeader.classList.remove("hidden");
     userNameEl.textContent = user.name;
+    loadDays();
   }
 
   (async function init() {
@@ -202,9 +336,198 @@
     }
   })();
 
-  if ("serviceWorker" in navigator) {
-    // Platzhalter für spätere Offline-Unterstützung
+  // ── Trainingstage & Übungen ──────────────────────────────────────────────
+
+  let days = [];
+
+  async function loadDays() {
+    try {
+      days = await apiFetch("/api/workout-days");
+      renderDays();
+    } catch (err) {
+      console.error(err);
+    }
   }
+
+  function renderDays() {
+    daysList.innerHTML = "";
+    emptyState.classList.toggle("hidden", days.length > 0);
+    const sorted = [...days].sort(
+      (a, b) => WEEKDAY_ORDER.indexOf(a.weekday) - WEEKDAY_ORDER.indexOf(b.weekday)
+    );
+    for (const day of sorted) {
+      const card = document.createElement("div");
+      card.className = "day-card";
+      card.dataset.dayId = day.id;
+      card.innerHTML = `
+        <div class="day-header">
+          <h3>${WEEKDAY_LABELS[day.weekday]}${day.name ? " · " + escapeHtml(day.name) : ""}</h3>
+          <button type="button" class="icon-btn delete-day" title="Trainingstag löschen">×</button>
+        </div>
+        <div class="exercise-list">
+          ${day.exercises.map(renderExerciseRow).join("")}
+        </div>
+        <form class="add-exercise-form">
+          <input type="text" class="new-exercise-input" placeholder="+ Übung hinzufügen" required />
+        </form>
+      `;
+      daysList.appendChild(card);
+    }
+  }
+
+  function renderExerciseRow(ex) {
+    return `
+      <div class="exercise-row" data-exercise-id="${ex.id}">
+        <div class="exercise-main">
+          <span class="exercise-name">${escapeHtml(ex.name)}</span>
+          <div class="exercise-actions">
+            <button type="button" class="btn-small log-btn">Loggen</button>
+            <button type="button" class="icon-btn delete-exercise" title="Übung löschen">×</button>
+          </div>
+        </div>
+        <div class="log-form hidden"></div>
+      </div>
+    `;
+  }
+
+  async function openLogForm(exerciseId, container) {
+    container.classList.remove("hidden");
+    container.innerHTML = `<p class="muted">Lade…</p>`;
+    let lastLog = null;
+    try {
+      lastLog = await apiFetch(`/api/exercises/${exerciseId}/last-log`);
+    } catch (err) {
+      container.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+      return;
+    }
+    container.innerHTML = `
+      <p class="preset-hint">${
+        lastLog
+          ? `Letztes Gewicht: ${lastLog.weight} kg${lastLog.feeling ? " · " + FEELING_LABELS[lastLog.feeling] : ""}`
+          : "Noch kein Eintrag"
+      }</p>
+      <label>Gewicht (kg)</label>
+      <input type="number" step="0.5" min="0" class="log-weight" value="${lastLog ? lastLog.weight : ""}" />
+      <div class="row-2">
+        <div><label>Sätze</label><input type="number" min="0" class="log-sets" value="${lastLog?.sets ?? ""}" /></div>
+        <div><label>Wdh.</label><input type="number" min="0" class="log-reps" value="${lastLog?.reps ?? ""}" /></div>
+      </div>
+      <label>Gefühl</label>
+      <div class="feeling-group">
+        <button type="button" class="feeling-btn" data-feeling="too_light">Zu leicht</button>
+        <button type="button" class="feeling-btn" data-feeling="comfortable">Passt</button>
+        <button type="button" class="feeling-btn" data-feeling="too_heavy">Zu schwer</button>
+      </div>
+      <button type="button" class="btn-small save-log-btn">Eintragen</button>
+      <p class="error log-error"></p>
+    `;
+  }
+
+  addDayBtn.addEventListener("click", () => {
+    dayFormError.textContent = "";
+    addDayCard.classList.toggle("hidden");
+  });
+
+  dayCancelBtn.addEventListener("click", () => addDayCard.classList.add("hidden"));
+
+  addDayForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    dayFormError.textContent = "";
+    try {
+      await apiFetch("/api/workout-days", {
+        method: "POST",
+        body: JSON.stringify({
+          weekday: dayWeekdaySelect.value,
+          name: dayNameInput.value.trim() || null,
+        }),
+      });
+      dayNameInput.value = "";
+      addDayCard.classList.add("hidden");
+      await loadDays();
+    } catch (err) {
+      dayFormError.textContent = err.message;
+    }
+  });
+
+  daysList.addEventListener("submit", async (e) => {
+    if (!e.target.classList.contains("add-exercise-form")) return;
+    e.preventDefault();
+    const dayId = e.target.closest(".day-card").dataset.dayId;
+    const input = e.target.querySelector(".new-exercise-input");
+    const name = input.value.trim();
+    if (!name) return;
+    try {
+      await apiFetch(`/api/workout-days/${dayId}/exercises`, {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      await loadDays();
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  daysList.addEventListener("click", async (e) => {
+    if (e.target.closest(".delete-day")) {
+      const dayId = e.target.closest(".day-card").dataset.dayId;
+      if (!confirm("Trainingstag wirklich löschen?")) return;
+      await apiFetch(`/api/workout-days/${dayId}`, { method: "DELETE" });
+      await loadDays();
+      return;
+    }
+
+    const exerciseRow = e.target.closest(".exercise-row");
+    if (!exerciseRow) return;
+    const exerciseId = exerciseRow.dataset.exerciseId;
+    const logFormEl = exerciseRow.querySelector(".log-form");
+
+    if (e.target.closest(".delete-exercise")) {
+      if (!confirm("Übung wirklich löschen?")) return;
+      await apiFetch(`/api/exercises/${exerciseId}`, { method: "DELETE" });
+      await loadDays();
+      return;
+    }
+
+    if (e.target.closest(".log-btn")) {
+      const wasHidden = logFormEl.classList.contains("hidden");
+      daysList.querySelectorAll(".log-form").forEach((f) => f.classList.add("hidden"));
+      if (wasHidden) await openLogForm(exerciseId, logFormEl);
+      return;
+    }
+
+    if (e.target.closest(".feeling-btn")) {
+      logFormEl.querySelectorAll(".feeling-btn").forEach((b) => b.classList.remove("active"));
+      e.target.closest(".feeling-btn").classList.add("active");
+      return;
+    }
+
+    if (e.target.closest(".save-log-btn")) {
+      const weightInput = logFormEl.querySelector(".log-weight");
+      const setsInput = logFormEl.querySelector(".log-sets");
+      const repsInput = logFormEl.querySelector(".log-reps");
+      const activeFeeling = logFormEl.querySelector(".feeling-btn.active");
+      const errorEl = logFormEl.querySelector(".log-error");
+      const weight = parseFloat(weightInput.value);
+      if (!weight) {
+        errorEl.textContent = "Bitte Gewicht eintragen";
+        return;
+      }
+      try {
+        await apiFetch(`/api/exercises/${exerciseId}/logs`, {
+          method: "POST",
+          body: JSON.stringify({
+            weight,
+            sets: setsInput.value ? parseInt(setsInput.value, 10) : null,
+            reps: repsInput.value ? parseInt(repsInput.value, 10) : null,
+            feeling: activeFeeling ? activeFeeling.dataset.feeling : null,
+          }),
+        });
+        logFormEl.classList.add("hidden");
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    }
+  });
 </script>
 </body>
 </html>
