@@ -177,6 +177,23 @@
   }
   #spinner-overlay img { width: 120px; height: 120px; }
   #spinner-overlay.hidden { display: none; }
+
+  #auth-intro {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  #auth-intro #auth-view {
+    width: auto;
+    transition: max-width 0.7s cubic-bezier(0.34, 1.56, 0.64, 1), padding 0.7s ease;
+  }
+  #auth-intro #auth-view.intro-small { max-width: 170px; padding: 14px; }
+  #wave-animation { transition: opacity 0.35s ease; }
+  #wave-animation.wave-fade { opacity: 0; }
+  #wave-animation img { width: 110px; height: 110px; display: block; }
 </style>
 </head>
 <body>
@@ -191,22 +208,28 @@
 </header>
 
 <main>
-  <section id="auth-view" class="card">
-    <h2 id="auth-title">Anmelden</h2>
-    <form id="auth-form">
-      <div id="name-field" class="hidden">
-        <label for="name">Name</label>
-        <input id="name" type="text" autocomplete="name" />
-      </div>
-      <label for="email">E-Mail</label>
-      <input id="email" type="email" required autocomplete="email" />
-      <label for="password">Passwort</label>
-      <input id="password" type="password" required autocomplete="current-password" />
-      <button type="submit" id="auth-submit">Anmelden</button>
-      <p class="error" id="auth-error"></p>
-    </form>
-    <button class="link" id="auth-toggle">Noch kein Konto? Registrieren</button>
-  </section>
+  <div id="auth-intro">
+    <section id="auth-view" class="card">
+      <h2 id="auth-title">Anmelden</h2>
+      <form id="auth-form">
+        <div id="name-field" class="hidden">
+          <label for="name">Name</label>
+          <input id="name" type="text" autocomplete="name" />
+        </div>
+        <label for="email">E-Mail</label>
+        <input id="email" type="email" required autocomplete="email" />
+        <label for="password">Passwort</label>
+        <input id="password" type="password" required autocomplete="current-password" />
+        <button type="submit" id="auth-submit">Anmelden</button>
+        <p class="error" id="auth-error"></p>
+      </form>
+      <button class="link" id="auth-toggle">Noch kein Konto? Registrieren</button>
+    </section>
+
+    <div id="wave-animation" class="hidden">
+      <img id="wave-img" src="/gym-buddy-login-animation.webp" alt="Gym Buddy Waschbär winkt" />
+    </div>
+  </div>
 
   <section id="dashboard-view" class="hidden">
     <div class="dashboard-inner">
@@ -276,6 +299,8 @@
   const nameField = document.getElementById("name-field");
   const userNameEl = document.getElementById("user-name");
   const logoutBtn = document.getElementById("logout");
+  const waveAnimation = document.getElementById("wave-animation");
+  const waveImg = document.getElementById("wave-img");
 
   const daysList = document.getElementById("days-list");
   const emptyState = document.getElementById("empty-state");
@@ -318,6 +343,20 @@
   function hideSpinner() {
     activeRequests = Math.max(0, activeRequests - 1);
     if (activeRequests === 0) spinnerOverlay.classList.add("hidden");
+  }
+
+  // Dauer eines Durchlaufs von gym-buddy-login-animation.webp (13 Frames, Loop-Count 0 = würde nativ endlos loopen)
+  const WAVE_ANIMATION_DURATION_MS = 3580;
+
+  function playLoginIntro() {
+    authView.classList.add("intro-small");
+    waveAnimation.classList.remove("hidden", "wave-fade");
+    waveImg.src = `/gym-buddy-login-animation.webp?t=${Date.now()}`;
+    setTimeout(() => {
+      authView.classList.remove("intro-small");
+      waveAnimation.classList.add("wave-fade");
+      setTimeout(() => waveAnimation.classList.add("hidden"), 400);
+    }, WAVE_ANIMATION_DURATION_MS);
   }
 
   async function apiFetch(path, options = {}) {
@@ -390,6 +429,7 @@
     nameField.classList.add("hidden");
     authError.textContent = "";
     authForm.reset();
+    playLoginIntro();
   }
 
   logoutBtn.addEventListener("click", doLogout);
@@ -407,6 +447,8 @@
     const user = localStorage.getItem("user");
     if (token && user) {
       showDashboard(JSON.parse(user));
+    } else {
+      playLoginIntro();
     }
   })();
 
