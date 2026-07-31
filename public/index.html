@@ -229,7 +229,7 @@
     </section>
 
     <div id="wave-animation" class="hidden">
-      <img id="wave-img" src="/gym-buddy-adonis-login-animation.webp" alt="Gym Buddy Waschbär posiert über der Login-Maske" />
+      <img id="wave-img" src="/gym-buddy-adonis-login-animation-clean.webp" alt="Gym Buddy Waschbär posiert über der Login-Maske" />
     </div>
   </div>
 
@@ -347,12 +347,12 @@
     if (activeRequests === 0) spinnerOverlay.classList.add("hidden");
   }
 
-  // Dauer eines Durchlaufs von gym-buddy-adonis-login-animation.webp (17 Frames, Loop-Count 0 = würde nativ endlos loopen)
+  // Dauer eines Durchlaufs von gym-buddy-adonis-login-animation-clean.webp (18 Frames, Loop-Count 0 = würde nativ endlos loopen)
   const WAVE_ANIMATION_DURATION_MS = 5980;
 
   function playLoginIntro() {
     waveAnimation.classList.remove("hidden", "wave-fade");
-    waveImg.src = `/gym-buddy-adonis-login-animation.webp?t=${Date.now()}`;
+    waveImg.src = `/gym-buddy-adonis-login-animation-clean.webp?t=${Date.now()}`;
     setTimeout(() => {
       waveAnimation.classList.add("wave-fade");
       setTimeout(() => waveAnimation.classList.add("hidden"), 400);
