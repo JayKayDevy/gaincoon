@@ -186,16 +186,21 @@
   }
   #auth-intro #auth-view { margin-top: 150px; }
   #wave-animation {
+    /* Der Waschbär-Inhalt in der 512x512-Canvas hat oben/unten transparenten Rand
+       (über alle 18 Frames gemessen: y 86–459). Container zeigt nur diesen Bereich,
+       damit kein leerer Rand zwischen Waschbär und Card entsteht. */
     position: absolute;
     bottom: 100%;
     left: 50%;
     width: 220px;
-    transform: translateX(-50%) translateY(180px);
+    height: 160px;
+    overflow: hidden;
+    transform: translateX(-50%) translateY(182px);
     z-index: 2;
     transition: opacity 0.4s ease;
   }
   #wave-animation.wave-fade { opacity: 0; }
-  #wave-animation img { width: 100%; display: block; }
+  #wave-animation img { position: absolute; width: 220px; height: 220px; top: -37px; left: 0; display: block; }
 </style>
 </head>
 <body>
@@ -352,11 +357,17 @@
 
   function playLoginIntro() {
     waveAnimation.classList.remove("hidden", "wave-fade");
+    waveImg.addEventListener(
+      "load",
+      () => {
+        setTimeout(() => {
+          waveAnimation.classList.add("wave-fade");
+          setTimeout(() => waveAnimation.classList.add("hidden"), 400);
+        }, WAVE_ANIMATION_DURATION_MS);
+      },
+      { once: true }
+    );
     waveImg.src = `/gym-buddy-adonis-login-animation-clean.webp?t=${Date.now()}`;
-    setTimeout(() => {
-      waveAnimation.classList.add("wave-fade");
-      setTimeout(() => waveAnimation.classList.add("hidden"), 400);
-    }, WAVE_ANIMATION_DURATION_MS);
   }
 
   async function apiFetch(path, options = {}) {
