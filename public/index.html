@@ -165,9 +165,25 @@
     font-size: 0.9rem;
   }
   #session-set-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+  #spinner-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(13, 13, 15, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  #spinner-overlay img { width: 120px; height: 120px; }
+  #spinner-overlay.hidden { display: none; }
 </style>
 </head>
 <body>
+
+<div id="spinner-overlay" class="hidden">
+  <img src="/gym-buddy-spinner.webp" alt="Lädt…" />
+</div>
 
 <header id="app-header" class="hidden">
   <h1>Gym Buddy · <span id="user-name"></span></h1>
@@ -291,24 +307,43 @@
     return div.innerHTML;
   }
 
+  const spinnerOverlay = document.getElementById("spinner-overlay");
+  let activeRequests = 0;
+
+  function showSpinner() {
+    activeRequests++;
+    spinnerOverlay.classList.remove("hidden");
+  }
+
+  function hideSpinner() {
+    activeRequests = Math.max(0, activeRequests - 1);
+    if (activeRequests === 0) spinnerOverlay.classList.add("hidden");
+  }
+
   async function apiFetch(path, options = {}) {
     const token = localStorage.getItem("token");
-    const res = await fetch(path, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options.headers || {}),
-      },
-    });
-    if (res.status === 401) {
-      doLogout();
-      throw new Error("Sitzung abgelaufen, bitte erneut anmelden");
+    showSpinner();
+    try {
+      const res = await fetch(path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(options.headers || {}),
+        },
+      });
+      if (res.status === 401) {
+        const data = await res.json().catch(() => null);
+        if (token) doLogout();
+        throw new Error(data?.error || "Nicht angemeldet");
+      }
+      if (res.status === 204) return null;
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "Fehler");
+      return data;
+    } finally {
+      hideSpinner();
     }
-    if (res.status === 204) return null;
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.error || "Fehler");
-    return data;
   }
 
   let mode = "login";
@@ -333,13 +368,7 @@
     const body = mode === "register" ? { name, email, password } : { email, password };
 
     try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Fehler");
+      const data = await apiFetch(endpoint, { method: "POST", body: JSON.stringify(body) });
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
       showDashboard(data.user);
