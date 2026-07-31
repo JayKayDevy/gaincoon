@@ -130,9 +130,6 @@
   .exercise-name { flex: 1; }
   .exercise-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
   .btn-small { width: auto; margin: 0; padding: 6px 12px; font-size: 0.85rem; }
-  .log-form { margin-top: 10px; padding-top: 4px; }
-  .row-2 { display: flex; gap: 10px; }
-  .row-2 > div { flex: 1; }
   .feeling-group { display: flex; gap: 6px; margin-top: 6px; }
   .feeling-btn {
     flex: 1;
@@ -150,6 +147,24 @@
   .add-exercise-form { margin-top: 10px; }
   .add-exercise-form input { font-size: 0.9rem; padding: 8px 10px; }
   .muted { color: var(--muted); font-size: 0.85rem; }
+
+  .session-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  #session-card { max-width: none; margin-top: 0; }
+  .logged-set {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  #session-set-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -198,6 +213,36 @@
           <button type="button" class="link" id="day-cancel">Abbrechen</button>
           <p class="error" id="day-form-error"></p>
         </form>
+      </div>
+    </div>
+  </section>
+
+  <section id="session-view" class="hidden">
+    <div class="dashboard-inner">
+      <div class="session-header">
+        <span id="session-day-name"></span>
+        <span id="session-progress" class="muted"></span>
+      </div>
+      <div class="card" id="session-card">
+        <h2 id="session-exercise-name"></h2>
+        <div id="session-sets-list"></div>
+        <div id="session-set-form">
+          <p class="preset-hint" id="session-preset-hint"></p>
+          <label for="session-weight">Gewicht (kg)</label>
+          <input type="number" step="0.5" min="0" id="session-weight" />
+          <label for="session-reps">Wiederholungen</label>
+          <input type="number" min="0" id="session-reps" />
+          <label>Gefühl</label>
+          <div class="feeling-group" id="session-feeling-group">
+            <button type="button" class="feeling-btn" data-feeling="too_light">Zu leicht</button>
+            <button type="button" class="feeling-btn" data-feeling="comfortable">Passt</button>
+            <button type="button" class="feeling-btn" data-feeling="too_heavy">Zu schwer</button>
+          </div>
+          <button type="button" id="session-add-set-btn">Satz speichern</button>
+          <p class="error" id="session-set-error"></p>
+        </div>
+        <button type="button" id="session-next-btn" class="secondary">Nächste Übung</button>
+        <button type="button" class="link" id="session-cancel-btn">Training abbrechen</button>
       </div>
     </div>
   </section>
@@ -362,7 +407,10 @@
       card.innerHTML = `
         <div class="day-header">
           <h3>${WEEKDAY_LABELS[day.weekday]}${day.name ? " · " + escapeHtml(day.name) : ""}</h3>
-          <button type="button" class="icon-btn delete-day" title="Trainingstag löschen">×</button>
+          <div class="exercise-actions">
+            <button type="button" class="btn-small start-session-btn">Training starten</button>
+            <button type="button" class="icon-btn delete-day" title="Trainingstag löschen">×</button>
+          </div>
         </div>
         <div class="exercise-list">
           ${day.exercises.map(renderExerciseRow).join("")}
@@ -381,45 +429,10 @@
         <div class="exercise-main">
           <span class="exercise-name">${escapeHtml(ex.name)}</span>
           <div class="exercise-actions">
-            <button type="button" class="btn-small log-btn">Loggen</button>
             <button type="button" class="icon-btn delete-exercise" title="Übung löschen">×</button>
           </div>
         </div>
-        <div class="log-form hidden"></div>
       </div>
-    `;
-  }
-
-  async function openLogForm(exerciseId, container) {
-    container.classList.remove("hidden");
-    container.innerHTML = `<p class="muted">Lade…</p>`;
-    let lastLog = null;
-    try {
-      lastLog = await apiFetch(`/api/exercises/${exerciseId}/last-log`);
-    } catch (err) {
-      container.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
-      return;
-    }
-    container.innerHTML = `
-      <p class="preset-hint">${
-        lastLog
-          ? `Letztes Gewicht: ${lastLog.weight} kg${lastLog.feeling ? " · " + FEELING_LABELS[lastLog.feeling] : ""}`
-          : "Noch kein Eintrag"
-      }</p>
-      <label>Gewicht (kg)</label>
-      <input type="number" step="0.5" min="0" class="log-weight" value="${lastLog ? lastLog.weight : ""}" />
-      <div class="row-2">
-        <div><label>Sätze</label><input type="number" min="0" class="log-sets" value="${lastLog?.sets ?? ""}" /></div>
-        <div><label>Wdh.</label><input type="number" min="0" class="log-reps" value="${lastLog?.reps ?? ""}" /></div>
-      </div>
-      <label>Gefühl</label>
-      <div class="feeling-group">
-        <button type="button" class="feeling-btn" data-feeling="too_light">Zu leicht</button>
-        <button type="button" class="feeling-btn" data-feeling="comfortable">Passt</button>
-        <button type="button" class="feeling-btn" data-feeling="too_heavy">Zu schwer</button>
-      </div>
-      <button type="button" class="btn-small save-log-btn">Eintragen</button>
-      <p class="error log-error"></p>
     `;
   }
 
@@ -476,10 +489,15 @@
       return;
     }
 
+    if (e.target.closest(".start-session-btn")) {
+      const dayId = e.target.closest(".day-card").dataset.dayId;
+      await startSession(dayId);
+      return;
+    }
+
     const exerciseRow = e.target.closest(".exercise-row");
     if (!exerciseRow) return;
     const exerciseId = exerciseRow.dataset.exerciseId;
-    const logFormEl = exerciseRow.querySelector(".log-form");
 
     if (e.target.closest(".delete-exercise")) {
       if (!confirm("Übung wirklich löschen?")) return;
@@ -487,45 +505,176 @@
       await loadDays();
       return;
     }
+  });
 
-    if (e.target.closest(".log-btn")) {
-      const wasHidden = logFormEl.classList.contains("hidden");
-      daysList.querySelectorAll(".log-form").forEach((f) => f.classList.add("hidden"));
-      if (wasHidden) await openLogForm(exerciseId, logFormEl);
+  // ── Trainings-Session (Schritt für Schritt: Übung für Übung, Satz für Satz) ──
+
+  const sessionView = document.getElementById("session-view");
+  const sessionDayName = document.getElementById("session-day-name");
+  const sessionProgress = document.getElementById("session-progress");
+  const sessionExerciseName = document.getElementById("session-exercise-name");
+  const sessionSetsList = document.getElementById("session-sets-list");
+  const sessionPresetHint = document.getElementById("session-preset-hint");
+  const sessionWeight = document.getElementById("session-weight");
+  const sessionReps = document.getElementById("session-reps");
+  const sessionFeelingGroup = document.getElementById("session-feeling-group");
+  const sessionAddSetBtn = document.getElementById("session-add-set-btn");
+  const sessionSetError = document.getElementById("session-set-error");
+  const sessionNextBtn = document.getElementById("session-next-btn");
+  const sessionCancelBtn = document.getElementById("session-cancel-btn");
+
+  let session = null;
+
+  async function startSession(dayId) {
+    let data;
+    try {
+      data = await apiFetch(`/api/workout-days/${dayId}/sessions`, { method: "POST" });
+    } catch (err) {
+      alert(err.message);
       return;
     }
-
-    if (e.target.closest(".feeling-btn")) {
-      logFormEl.querySelectorAll(".feeling-btn").forEach((b) => b.classList.remove("active"));
-      e.target.closest(".feeling-btn").classList.add("active");
+    if (!data.exercises.length) {
+      alert("Dieser Trainingstag hat noch keine Übungen. Erst welche hinzufügen.");
       return;
     }
+    session = {
+      id: data.session.id,
+      dayLabel: WEEKDAY_LABELS[data.day.weekday] + (data.day.name ? " · " + escapeHtml(data.day.name) : ""),
+      exercises: data.exercises,
+      currentIndex: 0,
+      setsByExercise: {},
+      presetByExercise: {},
+    };
+    dashboardView.classList.add("hidden");
+    appHeader.classList.add("hidden");
+    sessionView.classList.remove("hidden");
+    await renderCurrentExercise();
+  }
 
-    if (e.target.closest(".save-log-btn")) {
-      const weightInput = logFormEl.querySelector(".log-weight");
-      const setsInput = logFormEl.querySelector(".log-sets");
-      const repsInput = logFormEl.querySelector(".log-reps");
-      const activeFeeling = logFormEl.querySelector(".feeling-btn.active");
-      const errorEl = logFormEl.querySelector(".log-error");
-      const weight = parseFloat(weightInput.value);
-      if (!weight) {
-        errorEl.textContent = "Bitte Gewicht eintragen";
-        return;
-      }
+  function endSession() {
+    session = null;
+    sessionView.classList.add("hidden");
+    appHeader.classList.remove("hidden");
+    dashboardView.classList.remove("hidden");
+  }
+
+  async function renderCurrentExercise() {
+    const ex = session.exercises[session.currentIndex];
+    sessionDayName.innerHTML = session.dayLabel;
+    sessionProgress.textContent = `Übung ${session.currentIndex + 1}/${session.exercises.length}`;
+    sessionExerciseName.textContent = ex.name;
+    sessionSetError.textContent = "";
+
+    if (!session.presetByExercise[ex.id]) {
       try {
-        await apiFetch(`/api/exercises/${exerciseId}/logs`, {
-          method: "POST",
-          body: JSON.stringify({
-            weight,
-            sets: setsInput.value ? parseInt(setsInput.value, 10) : null,
-            reps: repsInput.value ? parseInt(repsInput.value, 10) : null,
-            feeling: activeFeeling ? activeFeeling.dataset.feeling : null,
-          }),
-        });
-        logFormEl.classList.add("hidden");
-      } catch (err) {
-        errorEl.textContent = err.message;
+        session.presetByExercise[ex.id] = await apiFetch(`/api/exercises/${ex.id}/preset`);
+      } catch {
+        session.presetByExercise[ex.id] = [];
       }
+    }
+    if (!session.setsByExercise[ex.id]) session.setsByExercise[ex.id] = [];
+
+    renderLoggedSets();
+    renderSetForm();
+
+    sessionNextBtn.textContent =
+      session.currentIndex === session.exercises.length - 1 ? "Training abschließen" : "Nächste Übung ›";
+  }
+
+  function renderLoggedSets() {
+    const ex = session.exercises[session.currentIndex];
+    const sets = session.setsByExercise[ex.id];
+    sessionSetsList.innerHTML = sets
+      .map(
+        (s) => `
+        <div class="logged-set" data-set-id="${s.id}">
+          <span>Satz ${s.set_number} · ${s.weight} kg${s.reps ? " × " + s.reps : ""}${s.feeling ? " · " + FEELING_LABELS[s.feeling] : ""}</span>
+          <button type="button" class="icon-btn delete-set" title="Satz löschen">×</button>
+        </div>`
+      )
+      .join("");
+  }
+
+  function renderSetForm() {
+    const ex = session.exercises[session.currentIndex];
+    const nextSetNumber = session.setsByExercise[ex.id].length + 1;
+    const preset = session.presetByExercise[ex.id].find((p) => p.set_number === nextSetNumber);
+    sessionPresetHint.textContent = preset
+      ? `Satz ${nextSetNumber} zuletzt: ${preset.weight} kg${preset.feeling ? " · " + FEELING_LABELS[preset.feeling] : ""}`
+      : `Satz ${nextSetNumber} · noch kein Vergleichswert`;
+    sessionWeight.value = preset ? preset.weight : "";
+    sessionReps.value = preset && preset.reps != null ? preset.reps : "";
+    sessionFeelingGroup.querySelectorAll(".feeling-btn").forEach((b) => b.classList.remove("active"));
+  }
+
+  sessionFeelingGroup.addEventListener("click", (e) => {
+    const btn = e.target.closest(".feeling-btn");
+    if (!btn) return;
+    sessionFeelingGroup.querySelectorAll(".feeling-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+  });
+
+  sessionAddSetBtn.addEventListener("click", async () => {
+    const ex = session.exercises[session.currentIndex];
+    const weight = parseFloat(sessionWeight.value);
+    if (!weight) {
+      sessionSetError.textContent = "Bitte Gewicht eintragen";
+      return;
+    }
+    const setNumber = session.setsByExercise[ex.id].length + 1;
+    const activeFeeling = sessionFeelingGroup.querySelector(".feeling-btn.active");
+    try {
+      const created = await apiFetch(`/api/sessions/${session.id}/sets`, {
+        method: "POST",
+        body: JSON.stringify({
+          exercise_id: ex.id,
+          set_number: setNumber,
+          weight,
+          reps: sessionReps.value ? parseInt(sessionReps.value, 10) : null,
+          feeling: activeFeeling ? activeFeeling.dataset.feeling : null,
+        }),
+      });
+      session.setsByExercise[ex.id].push(created);
+      sessionSetError.textContent = "";
+      renderLoggedSets();
+      renderSetForm();
+    } catch (err) {
+      sessionSetError.textContent = err.message;
+    }
+  });
+
+  sessionSetsList.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".delete-set");
+    if (!btn) return;
+    const setId = btn.closest(".logged-set").dataset.setId;
+    const ex = session.exercises[session.currentIndex];
+    try {
+      await apiFetch(`/api/sets/${setId}`, { method: "DELETE" });
+      session.setsByExercise[ex.id] = session.setsByExercise[ex.id].filter((s) => String(s.id) !== setId);
+      renderLoggedSets();
+      renderSetForm();
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  sessionNextBtn.addEventListener("click", async () => {
+    if (session.currentIndex < session.exercises.length - 1) {
+      session.currentIndex++;
+      await renderCurrentExercise();
+    } else {
+      try {
+        await apiFetch(`/api/sessions/${session.id}/complete`, { method: "PATCH" });
+      } catch (err) {
+        console.error(err);
+      }
+      endSession();
+    }
+  });
+
+  sessionCancelBtn.addEventListener("click", () => {
+    if (confirm("Training abbrechen? Bereits geloggte Sätze bleiben gespeichert.")) {
+      endSession();
     }
   });
 </script>

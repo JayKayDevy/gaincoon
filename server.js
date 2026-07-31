@@ -53,16 +53,26 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
-      CREATE TABLE IF NOT EXISTS exercise_logs (
+      CREATE TABLE IF NOT EXISTS workout_sessions (
         id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        workout_day_id INTEGER REFERENCES workout_days(id) ON DELETE CASCADE,
+        started_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS set_logs (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES workout_sessions(id) ON DELETE CASCADE,
         exercise_id INTEGER REFERENCES exercises(id) ON DELETE CASCADE,
+        set_number INTEGER NOT NULL,
         weight DECIMAL(6,2) NOT NULL,
         reps INTEGER,
-        sets INTEGER,
         feeling VARCHAR(20),
         logged_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    await client.query(`DROP TABLE IF EXISTS exercise_logs CASCADE;`);
   } finally {
     client.release();
   }
@@ -202,53 +212,83 @@ app.delete("/api/exercises/:id", requireAuth, async (req, res) => {
   res.status(204).end();
 });
 
-// ── Exercise logs (Gewicht + Gefühl je Einheit) ──────────────────────────────
+// ── Preset (letztes Gewicht je Satzposition) ─────────────────────────────────
 
-app.get("/api/exercises/:id/last-log", requireAuth, async (req, res) => {
+app.get("/api/exercises/:id/preset", requireAuth, async (req, res) => {
   const result = await pool.query(
-    `SELECT l.* FROM exercise_logs l
-     JOIN exercises e ON e.id = l.exercise_id
+    `SELECT DISTINCT ON (sl.set_number) sl.set_number, sl.weight, sl.reps, sl.feeling
+     FROM set_logs sl
+     JOIN workout_sessions ws ON ws.id = sl.session_id
+     JOIN exercises e ON e.id = sl.exercise_id
      JOIN workout_days d ON d.id = e.workout_day_id
-     WHERE l.exercise_id = $1 AND d.user_id = $2
-     ORDER BY l.logged_at DESC LIMIT 1`,
-    [req.params.id, req.user.id]
-  );
-  res.json(result.rows[0] || null);
-});
-
-app.get("/api/exercises/:id/logs", requireAuth, async (req, res) => {
-  const result = await pool.query(
-    `SELECT l.* FROM exercise_logs l
-     JOIN exercises e ON e.id = l.exercise_id
-     JOIN workout_days d ON d.id = e.workout_day_id
-     WHERE l.exercise_id = $1 AND d.user_id = $2
-     ORDER BY l.logged_at DESC`,
+     WHERE sl.exercise_id = $1 AND d.user_id = $2
+     ORDER BY sl.set_number, sl.logged_at DESC`,
     [req.params.id, req.user.id]
   );
   res.json(result.rows);
 });
 
-app.post("/api/exercises/:id/logs", requireAuth, async (req, res) => {
-  const { weight, reps, sets, feeling } = req.body || {};
-  if (weight === undefined || weight === null) {
-    return res.status(400).json({ error: "weight erforderlich" });
+// ── Trainings-Sessions (Ausführung eines Trainingstags) ──────────────────────
+
+app.post("/api/workout-days/:id/sessions", requireAuth, async (req, res) => {
+  const day = await pool.query(
+    `SELECT * FROM workout_days WHERE id = $1 AND user_id = $2`,
+    [req.params.id, req.user.id]
+  );
+  if (!day.rows[0]) return res.status(404).json({ error: "Trainingstag nicht gefunden" });
+
+  const exercises = await pool.query(
+    `SELECT * FROM exercises WHERE workout_day_id = $1 ORDER BY order_index, id`,
+    [req.params.id]
+  );
+
+  const session = await pool.query(
+    `INSERT INTO workout_sessions (user_id, workout_day_id) VALUES ($1, $2) RETURNING *`,
+    [req.user.id, req.params.id]
+  );
+
+  res.status(201).json({ session: session.rows[0], day: day.rows[0], exercises: exercises.rows });
+});
+
+app.patch("/api/sessions/:id/complete", requireAuth, async (req, res) => {
+  const result = await pool.query(
+    `UPDATE workout_sessions SET completed_at = NOW()
+     WHERE id = $1 AND user_id = $2 RETURNING *`,
+    [req.params.id, req.user.id]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Session nicht gefunden" });
+  res.json(result.rows[0]);
+});
+
+app.post("/api/sessions/:id/sets", requireAuth, async (req, res) => {
+  const { exercise_id, set_number, weight, reps, feeling } = req.body || {};
+  if (!exercise_id || !set_number || weight === undefined || weight === null) {
+    return res.status(400).json({ error: "exercise_id, set_number und weight erforderlich" });
   }
   if (feeling && !FEELINGS.includes(feeling)) {
     return res.status(400).json({ error: `feeling muss einer von ${FEELINGS.join(", ")} sein` });
   }
-  const owned = await pool.query(
-    `SELECT e.id FROM exercises e
-     JOIN workout_days d ON d.id = e.workout_day_id
-     WHERE e.id = $1 AND d.user_id = $2`,
+  const session = await pool.query(
+    `SELECT id FROM workout_sessions WHERE id = $1 AND user_id = $2`,
     [req.params.id, req.user.id]
   );
-  if (!owned.rows[0]) return res.status(404).json({ error: "Übung nicht gefunden" });
+  if (!session.rows[0]) return res.status(404).json({ error: "Session nicht gefunden" });
+
   const result = await pool.query(
-    `INSERT INTO exercise_logs (exercise_id, weight, reps, sets, feeling)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [req.params.id, weight, reps || null, sets || null, feeling || null]
+    `INSERT INTO set_logs (session_id, exercise_id, set_number, weight, reps, feeling)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [req.params.id, exercise_id, set_number, weight, reps || null, feeling || null]
   );
   res.status(201).json(result.rows[0]);
+});
+
+app.delete("/api/sets/:id", requireAuth, async (req, res) => {
+  await pool.query(
+    `DELETE FROM set_logs sl USING workout_sessions ws
+     WHERE sl.session_id = ws.id AND sl.id = $1 AND ws.user_id = $2`,
+    [req.params.id, req.user.id]
+  );
+  res.status(204).end();
 });
 
 // ── Health & boot ─────────────────────────────────────────────────────────────
