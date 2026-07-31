@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: gym-buddy
+    name: gaincoon
     runtime: node
     plan: free
     buildCommand: npm install

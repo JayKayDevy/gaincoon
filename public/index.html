@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Gym Buddy</title>
+<title>Gaincoon</title>
 <link rel="manifest" href="/manifest.json" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <meta name="theme-color" content="#0d0d0f" />
@@ -206,11 +206,11 @@
 <body>
 
 <div id="spinner-overlay" class="hidden">
-  <img src="/gym-buddy-spinner.webp" alt="Lädt…" />
+  <img src="/gaincoon-spinner.webp" alt="Lädt…" />
 </div>
 
 <header id="app-header" class="hidden">
-  <h1>Gym Buddy · <span id="user-name"></span></h1>
+  <h1>Gaincoon · <span id="user-name"></span></h1>
   <button id="logout">Abmelden</button>
 </header>
 
@@ -234,7 +234,7 @@
     </section>
 
     <div id="wave-animation" class="hidden">
-      <img id="wave-img" src="/gym-buddy-adonis-login-animation-clean.webp" alt="Gym Buddy Waschbär posiert über der Login-Maske" />
+      <img id="wave-img" src="/gaincoon-adonis-login-animation-clean.webp" alt="Gaincoon Waschbär posiert über der Login-Maske" />
     </div>
   </div>
 
@@ -352,7 +352,7 @@
     if (activeRequests === 0) spinnerOverlay.classList.add("hidden");
   }
 
-  // Dauer eines Durchlaufs von gym-buddy-adonis-login-animation-clean.webp (18 Frames, Loop-Count 0 = würde nativ endlos loopen)
+  // Dauer eines Durchlaufs von gaincoon-adonis-login-animation-clean.webp (18 Frames, Loop-Count 0 = würde nativ endlos loopen)
   const WAVE_ANIMATION_DURATION_MS = 5980;
 
   function playLoginIntro() {
@@ -367,7 +367,7 @@
       },
       { once: true }
     );
-    waveImg.src = `/gym-buddy-adonis-login-animation-clean.webp?t=${Date.now()}`;
+    waveImg.src = `/gaincoon-adonis-login-animation-clean.webp?t=${Date.now()}`;
   }
 
   async function apiFetch(path, options = {}) {

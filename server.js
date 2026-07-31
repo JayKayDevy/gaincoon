@@ -297,7 +297,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 initDB()
   .then(() => {
-    app.listen(PORT, () => console.log(`Gym Buddy läuft auf Port ${PORT}`));
+    app.listen(PORT, () => console.log(`Gaincoon läuft auf Port ${PORT}`));
   })
   .catch((err) => {
     console.error("DB-Init fehlgeschlagen:", err);
