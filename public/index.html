@@ -575,26 +575,10 @@
       ],
     },
     {
-      title: "An wie vielen Tagen pro Woche möchtest du trainieren?",
-      text: "",
-      type: "choice",
-      key: "daysPerWeek",
-      choices: [
-        { value: 1, label: "1 Tag" },
-        { value: 2, label: "2 Tage" },
-        { value: 3, label: "3 Tage" },
-        { value: 4, label: "4 Tage" },
-        { value: 5, label: "5 Tage" },
-        { value: 6, label: "6 Tage" },
-        { value: 7, label: "7 Tage" },
-      ],
-    },
-    {
-      title: "An welchen Wochentagen könntest du trainieren?",
-      text: "",
+      title: "An welchen Wochentagen möchtest du trainieren?",
+      text: "Wähle alle Tage aus, an denen du trainieren möchtest.",
       type: "multi-choice",
       key: "weekdays",
-      minCountKey: "daysPerWeek",
       choices: WEEKDAY_ORDER.map((wd) => ({ value: wd, label: WEEKDAY_LABELS[wd] })),
     },
     { title: "Dauer einer Trainingseinheit", text: "(folgt als nächstes Arbeitspaket)" },
@@ -668,9 +652,13 @@
       });
       onboardingNextBtn.disabled = !onboardingData[step.key];
     } else if (step.type === "multi-choice") {
-      const minCount = (step.minCountKey && onboardingData[step.minCountKey]) || 1;
+      const minCount = step.minCountKey ? onboardingData[step.minCountKey] || 1 : 1;
       const selected = Array.isArray(onboardingData[step.key]) ? onboardingData[step.key] : [];
-      onboardingStepText.textContent = `Wähle mindestens ${minCount} Tag${minCount === 1 ? "" : "e"} aus.`;
+      if (step.minCountKey) {
+        onboardingStepText.textContent = `Wähle mindestens ${minCount} Tag${minCount === 1 ? "" : "e"} aus.`;
+      } else {
+        onboardingStepText.textContent = step.text;
+      }
       onboardingChoices.classList.remove("hidden");
       onboardingChoices.innerHTML = "";
       step.choices.forEach((choice) => {
