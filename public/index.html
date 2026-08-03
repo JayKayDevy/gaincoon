@@ -177,6 +177,22 @@
   }
   .feeling-btn.active { background: var(--accent); color: #111; border-color: var(--accent); }
   .preset-hint { color: var(--muted); font-size: 0.85rem; margin: 4px 0 10px; }
+
+  .onboarding-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+  .choice-btn {
+    width: 100%;
+    margin: 0;
+    padding: 12px 14px;
+    text-align: left;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 500;
+  }
+  .choice-btn.active { background: var(--accent); color: #111; border-color: var(--accent); }
+  #onboarding-next-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .add-exercise-form { margin-top: 10px; }
   .add-exercise-form input { font-size: 0.9rem; padding: 8px 10px; }
   .muted { color: var(--muted); font-size: 0.85rem; }
@@ -276,6 +292,7 @@
   <section id="onboarding-view" class="card hidden">
     <h2 id="onboarding-step-title"></h2>
     <p id="onboarding-step-text" class="muted"></p>
+    <div id="onboarding-choices" class="onboarding-choices hidden"></div>
     <button type="button" id="onboarding-next-btn">Weiter</button>
   </section>
 
@@ -375,6 +392,7 @@
   const onboardingView = document.getElementById("onboarding-view");
   const onboardingStepTitle = document.getElementById("onboarding-step-title");
   const onboardingStepText = document.getElementById("onboarding-step-text");
+  const onboardingChoices = document.getElementById("onboarding-choices");
   const onboardingNextBtn = document.getElementById("onboarding-next-btn");
 
   const daysList = document.getElementById("days-list");
@@ -538,18 +556,36 @@
     });
   });
 
-  // ── Onboarding (Status-Maschine + Persistenz; die eigentlichen Frage-Screens
+  // ── Onboarding (Status-Maschine + Persistenz; die meisten Frage-Screens
   //    folgen als eigene Arbeitspakete) ─────────────────────────────────────
 
   const ONBOARDING_STEPS = [
-    { title: "Willkommen bei Gaincoon!", text: "Lass uns kurz dein Training einrichten." },
-    { title: "Trainingsziel", text: "(folgt als nächstes Arbeitspaket)" },
+    { title: "Willkommen bei Gaincoon!", text: "Lass uns dein Training gemeinsam planen." },
+    {
+      title: "Was möchtest du mit deinem Training hauptsächlich erreichen?",
+      text: "",
+      type: "choice",
+      key: "goal",
+      choices: [
+        { value: "muscle_gain", label: "Muskeln aufbauen" },
+        { value: "fat_loss", label: "Fett verlieren" },
+        { value: "strength", label: "Stärker werden" },
+        { value: "general_fitness", label: "Allgemein fitter werden" },
+        { value: "balanced_mix", label: "Einen ausgewogenen Mix" },
+      ],
+    },
     { title: "Trainingstage pro Woche", text: "(folgt als nächstes Arbeitspaket)" },
     { title: "Mögliche Wochentage", text: "(folgt als nächstes Arbeitspaket)" },
     { title: "Dauer einer Trainingseinheit", text: "(folgt als nächstes Arbeitspaket)" },
+    { title: "Trainingsort und verfügbare Geräte", text: "(folgt als nächstes Arbeitspaket)" },
+    { title: "Trainingserfahrung", text: "(folgt als nächstes Arbeitspaket)" },
+    { title: "Beschwerden oder Einschränkungen", text: "(folgt als nächstes Arbeitspaket)" },
+    { title: "Präferenzen und Übungen", text: "(folgt als nächstes Arbeitspaket)" },
+    { title: "Zusammenfassung", text: "(folgt als nächstes Arbeitspaket)" },
   ];
 
   let onboardingStep = 0;
+  let onboardingData = {};
 
   function routeAfterAuth(user) {
     authView.classList.add("hidden");
@@ -583,6 +619,7 @@
     onboardingView.classList.remove("hidden");
     hideBottomNav();
     onboardingStep = user.onboarding_status === "in_progress" ? user.onboarding_step : 0;
+    onboardingData = user.onboarding_data || {};
     renderOnboardingStep();
   }
 
@@ -592,22 +629,49 @@
     onboardingStepText.textContent = step.text;
     onboardingNextBtn.textContent =
       onboardingStep === ONBOARDING_STEPS.length - 1 ? "Fertig" : "Weiter";
+
+    if (step.type === "choice") {
+      onboardingChoices.classList.remove("hidden");
+      onboardingChoices.innerHTML = "";
+      step.choices.forEach((choice) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "choice-btn";
+        btn.textContent = choice.label;
+        btn.classList.toggle("active", onboardingData[step.key] === choice.value);
+        btn.addEventListener("click", () => {
+          onboardingData[step.key] = choice.value;
+          renderOnboardingStep();
+        });
+        onboardingChoices.appendChild(btn);
+      });
+      onboardingNextBtn.disabled = !onboardingData[step.key];
+    } else {
+      onboardingChoices.classList.add("hidden");
+      onboardingChoices.innerHTML = "";
+      onboardingNextBtn.disabled = false;
+    }
   }
 
   onboardingNextBtn.addEventListener("click", async () => {
+    const step = ONBOARDING_STEPS[onboardingStep] || ONBOARDING_STEPS[0];
     const isLast = onboardingStep === ONBOARDING_STEPS.length - 1;
+    const data = step.type === "choice" ? { [step.key]: onboardingData[step.key] } : undefined;
     try {
       const result = await apiFetch("/api/onboarding", {
         method: "PATCH",
         body: JSON.stringify({
           step: isLast ? onboardingStep : onboardingStep + 1,
           completed: isLast,
+          data,
         }),
       });
       const storedUser = JSON.parse(localStorage.getItem("user"));
       storedUser.onboarding_status = result.onboarding_status;
       storedUser.onboarding_step = result.onboarding_step;
+      storedUser.onboarding_data = result.onboarding_data;
       localStorage.setItem("user", JSON.stringify(storedUser));
+      onboardingData = result.onboarding_data || {};
       if (isLast) {
         showDashboard();
       } else {
@@ -628,6 +692,7 @@
       const storedUser = JSON.parse(localStorage.getItem("user"));
       storedUser.onboarding_status = result.onboarding_status;
       storedUser.onboarding_step = result.onboarding_step;
+      storedUser.onboarding_data = result.onboarding_data;
       localStorage.setItem("user", JSON.stringify(storedUser));
       showOnboarding(storedUser);
     } catch (err) {

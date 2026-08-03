@@ -35,6 +35,7 @@ async function initDB() {
         password_hash VARCHAR(255) NOT NULL,
         onboarding_status VARCHAR(20) NOT NULL DEFAULT 'not_started',
         onboarding_step INTEGER NOT NULL DEFAULT 0,
+        onboarding_data JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_at TIMESTAMP DEFAULT NOW()
       );
 
@@ -78,6 +79,7 @@ async function initDB() {
     await client.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_status VARCHAR(20) NOT NULL DEFAULT 'not_started';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_step INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_data JSONB NOT NULL DEFAULT '{}'::jsonb;
     `);
   } finally {
     client.release();
@@ -113,7 +115,7 @@ app.post("/api/register", async (req, res) => {
     const password_hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
       `INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3)
-       RETURNING id, name, email, onboarding_status, onboarding_step`,
+       RETURNING id, name, email, onboarding_status, onboarding_step, onboarding_data`,
       [name, email, password_hash]
     );
     const user = result.rows[0];
@@ -145,6 +147,7 @@ app.post("/api/login", async (req, res) => {
         email: user.email,
         onboarding_status: user.onboarding_status,
         onboarding_step: user.onboarding_step,
+        onboarding_data: user.onboarding_data,
       },
       token: signToken(user),
     });
@@ -156,7 +159,7 @@ app.post("/api/login", async (req, res) => {
 
 app.get("/api/me", requireAuth, async (req, res) => {
   const result = await pool.query(
-    "SELECT id, name, email, onboarding_status, onboarding_step FROM users WHERE id = $1",
+    "SELECT id, name, email, onboarding_status, onboarding_step, onboarding_data FROM users WHERE id = $1",
     [req.user.id]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Nutzer nicht gefunden" });
@@ -167,7 +170,7 @@ app.get("/api/me", requireAuth, async (req, res) => {
 
 app.get("/api/onboarding", requireAuth, async (req, res) => {
   const result = await pool.query(
-    "SELECT onboarding_status, onboarding_step FROM users WHERE id = $1",
+    "SELECT onboarding_status, onboarding_step, onboarding_data FROM users WHERE id = $1",
     [req.user.id]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Nutzer nicht gefunden" });
@@ -175,15 +178,16 @@ app.get("/api/onboarding", requireAuth, async (req, res) => {
 });
 
 app.patch("/api/onboarding", requireAuth, async (req, res) => {
-  const { step, completed } = req.body || {};
+  const { step, completed, data } = req.body || {};
   if (!Number.isInteger(step) || step < 0) {
     return res.status(400).json({ error: "step muss eine nicht-negative Ganzzahl sein" });
   }
   const status = completed ? "completed" : "in_progress";
   const result = await pool.query(
-    `UPDATE users SET onboarding_status = $1, onboarding_step = $2
-     WHERE id = $3 RETURNING onboarding_status, onboarding_step`,
-    [status, step, req.user.id]
+    `UPDATE users SET onboarding_status = $1, onboarding_step = $2,
+       onboarding_data = onboarding_data || $3::jsonb
+     WHERE id = $4 RETURNING onboarding_status, onboarding_step, onboarding_data`,
+    [status, step, JSON.stringify(data || {}), req.user.id]
   );
   res.json(result.rows[0]);
 });
