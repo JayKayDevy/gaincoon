@@ -200,6 +200,22 @@
   .onboarding-nav-row button { margin-top: 20px; }
   #onboarding-back-btn { flex: 0 0 auto; width: auto; padding: 12px 18px; }
   #onboarding-next-btn { flex: 1; }
+  .recurring-session-row {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-top: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .recurring-session-row .recurring-session-name { font-weight: 600; }
+  .recurring-session-row .recurring-session-meta { color: var(--muted); font-size: 0.82rem; margin-top: 2px; }
+  .recurring-session-row .exercise-actions { flex-shrink: 0; }
+  #recurring-session-form-card { margin-top: 16px; }
+  #recurring-session-intensity-group { margin-top: 6px; }
   .limitation-detail-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
   .limitation-detail-block .choice-btn { font-size: 0.85rem; padding: 10px 12px; }
   .limitation-detail-block label { margin: 12px 0 6px; }
@@ -320,6 +336,32 @@
     <h2 id="onboarding-step-title"></h2>
     <p id="onboarding-step-text" class="muted"></p>
     <div id="onboarding-choices" class="onboarding-choices hidden"></div>
+
+    <div id="recurring-sessions-extra" class="hidden">
+      <div id="recurring-sessions-list"></div>
+      <button type="button" id="recurring-session-add-btn" class="btn-small secondary">+ Einheit hinzufügen</button>
+
+      <div id="recurring-session-form-card" class="card hidden">
+        <h2 id="recurring-session-form-title">Neue Einheit</h2>
+        <label for="recurring-session-name">Name</label>
+        <input id="recurring-session-name" type="text" list="recurring-session-suggestions" placeholder="z.B. BodyPump" />
+        <datalist id="recurring-session-suggestions"></datalist>
+        <label for="recurring-session-category">Kategorie</label>
+        <select id="recurring-session-category"></select>
+        <label for="recurring-session-weekday">Wochentag</label>
+        <select id="recurring-session-weekday"></select>
+        <label for="recurring-session-duration">Dauer</label>
+        <select id="recurring-session-duration"></select>
+        <label>Intensität</label>
+        <div class="feeling-group" id="recurring-session-intensity-group"></div>
+        <label for="recurring-session-time">Uhrzeit (optional)</label>
+        <input id="recurring-session-time" type="time" />
+        <button type="button" id="recurring-session-save-btn">Speichern</button>
+        <button type="button" class="link" id="recurring-session-cancel-btn">Abbrechen</button>
+        <p class="error" id="recurring-session-form-error"></p>
+      </div>
+    </div>
+
     <div class="onboarding-nav-row">
       <button type="button" id="onboarding-back-btn" class="secondary btn-small hidden">Zurück</button>
       <button type="button" id="onboarding-next-btn">Weiter</button>
@@ -428,6 +470,22 @@
   const onboardingChoices = document.getElementById("onboarding-choices");
   const onboardingBackBtn = document.getElementById("onboarding-back-btn");
   const onboardingNextBtn = document.getElementById("onboarding-next-btn");
+
+  const recurringSessionsExtra = document.getElementById("recurring-sessions-extra");
+  const recurringSessionsList = document.getElementById("recurring-sessions-list");
+  const recurringSessionAddBtn = document.getElementById("recurring-session-add-btn");
+  const recurringSessionFormCard = document.getElementById("recurring-session-form-card");
+  const recurringSessionFormTitle = document.getElementById("recurring-session-form-title");
+  const recurringSessionNameInput = document.getElementById("recurring-session-name");
+  const recurringSessionSuggestions = document.getElementById("recurring-session-suggestions");
+  const recurringSessionCategorySelect = document.getElementById("recurring-session-category");
+  const recurringSessionWeekdaySelect = document.getElementById("recurring-session-weekday");
+  const recurringSessionDurationSelect = document.getElementById("recurring-session-duration");
+  const recurringSessionIntensityGroup = document.getElementById("recurring-session-intensity-group");
+  const recurringSessionTimeInput = document.getElementById("recurring-session-time");
+  const recurringSessionSaveBtn = document.getElementById("recurring-session-save-btn");
+  const recurringSessionCancelBtn = document.getElementById("recurring-session-cancel-btn");
+  const recurringSessionFormError = document.getElementById("recurring-session-form-error");
 
   const daysList = document.getElementById("days-list");
   const emptyState = document.getElementById("empty-state");
@@ -616,6 +674,174 @@
     { value: "describe", label: "Ich möchte es genauer beschreiben" },
   ];
 
+  const COURSE_CATEGORIES = [
+    { value: "strength_endurance", label: "Kraft/Kraftausdauer" },
+    { value: "endurance", label: "Ausdauer" },
+    { value: "core", label: "Core" },
+    { value: "mobility_recovery", label: "Beweglichkeit/Regeneration" },
+    { value: "team_sport", label: "Mannschafts- oder Vereinssport" },
+    { value: "other", label: "Sonstiges" },
+  ];
+
+  const COURSE_INTENSITIES = [
+    { value: "light", label: "Leicht" },
+    { value: "medium", label: "Mittel" },
+    { value: "high", label: "Hoch" },
+  ];
+
+  const COURSE_DURATION_OPTIONS = [30, 45, 60, 90, 120];
+
+  const COURSE_NAME_SUGGESTIONS = [
+    "BodyPump", "BodyAttack", "Les Mills Core", "Indoor Cycling",
+    "Yoga", "Pilates", "Functional Training", "Zumba",
+  ];
+
+  // ── Kurse/feste Trainingseinheiten: Formularfelder sind statisches Markup
+  //    (nicht dynamisch neu erzeugt wie bei "limitations"), damit Texteingaben
+  //    beim Tippen nicht durch ein Re-Render den Fokus verlieren.
+  for (const cat of COURSE_CATEGORIES) {
+    const opt = document.createElement("option");
+    opt.value = cat.value;
+    opt.textContent = cat.label;
+    recurringSessionCategorySelect.appendChild(opt);
+  }
+  for (const wd of WEEKDAY_ORDER) {
+    const opt = document.createElement("option");
+    opt.value = wd;
+    opt.textContent = WEEKDAY_LABELS[wd];
+    recurringSessionWeekdaySelect.appendChild(opt);
+  }
+  for (const minutes of COURSE_DURATION_OPTIONS) {
+    const opt = document.createElement("option");
+    opt.value = String(minutes);
+    opt.textContent = `${minutes} Minuten`;
+    recurringSessionDurationSelect.appendChild(opt);
+  }
+  for (const name of COURSE_NAME_SUGGESTIONS) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    recurringSessionSuggestions.appendChild(opt);
+  }
+
+  let recurringSessionDraftId = null; // null = Formular zu, "new" = neue Einheit, sonst id der bearbeiteten Einheit
+  let recurringSessionDraftIntensity = null;
+
+  for (const opt of COURSE_INTENSITIES) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "feeling-btn";
+    btn.textContent = opt.label;
+    btn.addEventListener("click", () => {
+      recurringSessionDraftIntensity = opt.value;
+      updateRecurringSessionIntensityButtons();
+    });
+    recurringSessionIntensityGroup.appendChild(btn);
+  }
+
+  function updateRecurringSessionIntensityButtons() {
+    [...recurringSessionIntensityGroup.children].forEach((btn, i) => {
+      btn.classList.toggle("active", COURSE_INTENSITIES[i].value === recurringSessionDraftIntensity);
+    });
+  }
+
+  function openRecurringSessionForm(entry) {
+    recurringSessionDraftId = entry ? entry.id : "new";
+    recurringSessionFormTitle.textContent = entry ? "Einheit bearbeiten" : "Neue Einheit";
+    recurringSessionNameInput.value = entry?.name || "";
+    recurringSessionCategorySelect.value = entry?.category || COURSE_CATEGORIES[0].value;
+    recurringSessionWeekdaySelect.value = entry?.weekday || WEEKDAY_ORDER[0];
+    recurringSessionDurationSelect.value = String(entry?.durationMinutes || COURSE_DURATION_OPTIONS[0]);
+    recurringSessionTimeInput.value = entry?.time || "";
+    recurringSessionDraftIntensity = entry?.intensity || null;
+    updateRecurringSessionIntensityButtons();
+    recurringSessionFormError.textContent = "";
+    recurringSessionFormCard.classList.remove("hidden");
+    recurringSessionAddBtn.classList.add("hidden");
+  }
+
+  function closeRecurringSessionForm() {
+    recurringSessionDraftId = null;
+    recurringSessionFormCard.classList.add("hidden");
+    recurringSessionAddBtn.classList.remove("hidden");
+  }
+
+  function renderRecurringSessionsList() {
+    const sessions = Array.isArray(onboardingData.recurringSessions) ? onboardingData.recurringSessions : [];
+    recurringSessionsList.innerHTML = sessions
+      .map((s) => {
+        const categoryLabel = COURSE_CATEGORIES.find((c) => c.value === s.category)?.label || s.category;
+        const intensityLabel = COURSE_INTENSITIES.find((i) => i.value === s.intensity)?.label || s.intensity;
+        const meta = [categoryLabel, WEEKDAY_LABELS[s.weekday], `${s.durationMinutes} Min`, intensityLabel, s.time || null]
+          .filter(Boolean)
+          .join(" · ");
+        return `
+          <div class="recurring-session-row" data-id="${escapeHtml(s.id)}">
+            <div>
+              <div class="recurring-session-name">${escapeHtml(s.name)}</div>
+              <div class="recurring-session-meta">${meta}</div>
+            </div>
+            <div class="exercise-actions">
+              <button type="button" class="icon-btn edit-recurring-session" title="Bearbeiten">✎</button>
+              <button type="button" class="icon-btn delete-recurring-session" title="Einheit löschen">×</button>
+            </div>
+          </div>`;
+      })
+      .join("");
+  }
+
+  recurringSessionAddBtn.addEventListener("click", () => openRecurringSessionForm(null));
+  recurringSessionCancelBtn.addEventListener("click", () => closeRecurringSessionForm());
+
+  recurringSessionsList.addEventListener("click", (e) => {
+    const row = e.target.closest(".recurring-session-row");
+    if (!row) return;
+    const id = row.dataset.id;
+    const sessions = onboardingData.recurringSessions || [];
+    const entry = sessions.find((s) => String(s.id) === id);
+    if (!entry) return;
+    if (e.target.closest(".edit-recurring-session")) {
+      openRecurringSessionForm(entry);
+    } else if (e.target.closest(".delete-recurring-session")) {
+      if (!confirm("Einheit wirklich löschen?")) return;
+      onboardingData.recurringSessions = sessions.filter((s) => String(s.id) !== id);
+      if (recurringSessionDraftId === entry.id) closeRecurringSessionForm();
+      renderRecurringSessionsList();
+      onboardingNextBtn.disabled =
+        onboardingData.hasRecurringSessions === true && onboardingData.recurringSessions.length === 0;
+    }
+  });
+
+  recurringSessionSaveBtn.addEventListener("click", () => {
+    const name = recurringSessionNameInput.value.trim();
+    if (!name) {
+      recurringSessionFormError.textContent = "Bitte einen Namen angeben.";
+      return;
+    }
+    if (!recurringSessionDraftIntensity) {
+      recurringSessionFormError.textContent = "Bitte eine Intensität wählen.";
+      return;
+    }
+    const entry = {
+      id: recurringSessionDraftId === "new" ? `rs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` : recurringSessionDraftId,
+      name,
+      category: recurringSessionCategorySelect.value,
+      weekday: recurringSessionWeekdaySelect.value,
+      durationMinutes: Number(recurringSessionDurationSelect.value),
+      intensity: recurringSessionDraftIntensity,
+      time: recurringSessionTimeInput.value || null,
+    };
+    if (!Array.isArray(onboardingData.recurringSessions)) onboardingData.recurringSessions = [];
+    if (recurringSessionDraftId === "new") {
+      onboardingData.recurringSessions.push(entry);
+    } else {
+      const idx = onboardingData.recurringSessions.findIndex((s) => s.id === recurringSessionDraftId);
+      if (idx !== -1) onboardingData.recurringSessions[idx] = entry;
+    }
+    closeRecurringSessionForm();
+    renderRecurringSessionsList();
+    onboardingNextBtn.disabled = false;
+  });
+
   const ONBOARDING_STEPS = [
     { title: "Willkommen bei Gaincoon!", text: "Lass uns dein Training gemeinsam planen." },
     {
@@ -716,7 +942,12 @@
       type: "limitations",
       key: "hasLimitations",
     },
-    { title: "Kurse und andere feste Trainingseinheiten", text: "(folgt als nächstes Arbeitspaket)" },
+    {
+      title: "Nimmst du regelmäßig an Kursen oder anderen festen Trainingseinheiten teil?",
+      text: "",
+      type: "recurring-sessions",
+      key: "hasRecurringSessions",
+    },
     { title: "Präferenzen und Übungen", text: "(folgt als nächstes Arbeitspaket)" },
     { title: "Zusammenfassung", text: "(folgt als nächstes Arbeitspaket)" },
   ];
@@ -954,9 +1185,57 @@
 
       onboardingNextBtn.disabled =
         hasLimitations === undefined || (hasLimitations === true && !allSelectedAreasHandled);
+    } else if (step.type === "recurring-sessions") {
+      onboardingChoices.classList.remove("hidden");
+      onboardingChoices.innerHTML = "";
+
+      const hasSessions = onboardingData.hasRecurringSessions;
+
+      const gateWrap = document.createElement("div");
+      gateWrap.className = "onboarding-choices";
+
+      const noBtn = document.createElement("button");
+      noBtn.type = "button";
+      noBtn.className = "choice-btn";
+      noBtn.textContent = "Nein";
+      noBtn.classList.toggle("active", hasSessions === false);
+      noBtn.addEventListener("click", () => {
+        onboardingData.hasRecurringSessions = false;
+        onboardingData.recurringSessions = [];
+        closeRecurringSessionForm();
+        renderOnboardingStep();
+      });
+      gateWrap.appendChild(noBtn);
+
+      const yesBtn = document.createElement("button");
+      yesBtn.type = "button";
+      yesBtn.className = "choice-btn";
+      yesBtn.textContent = "Ja, Einheiten hinzufügen";
+      yesBtn.classList.toggle("active", hasSessions === true);
+      yesBtn.addEventListener("click", () => {
+        onboardingData.hasRecurringSessions = true;
+        if (!Array.isArray(onboardingData.recurringSessions)) onboardingData.recurringSessions = [];
+        renderOnboardingStep();
+      });
+      gateWrap.appendChild(yesBtn);
+
+      onboardingChoices.appendChild(gateWrap);
+
+      recurringSessionsExtra.classList.toggle("hidden", hasSessions !== true);
+      if (hasSessions === true) {
+        renderRecurringSessionsList();
+      } else {
+        closeRecurringSessionForm();
+      }
+
+      const sessionsCount = Array.isArray(onboardingData.recurringSessions)
+        ? onboardingData.recurringSessions.length
+        : 0;
+      onboardingNextBtn.disabled = hasSessions === undefined || (hasSessions === true && sessionsCount === 0);
     } else {
       onboardingChoices.classList.add("hidden");
       onboardingChoices.innerHTML = "";
+      recurringSessionsExtra.classList.add("hidden");
       onboardingNextBtn.disabled = false;
     }
   }
