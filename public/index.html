@@ -93,6 +93,7 @@
     max-width: 320px;
   }
   #logout { width: auto; margin: 0; padding: 8px 14px; font-size: 0.85rem; }
+  .header-actions { display: flex; align-items: center; gap: 8px; }
   .hidden { display: none; }
 
   select {
@@ -211,7 +212,10 @@
 
 <header id="app-header" class="hidden">
   <h1>Gaincoon · <span id="user-name"></span></h1>
-  <button id="logout">Abmelden</button>
+  <div class="header-actions">
+    <button type="button" id="restart-onboarding-btn" class="btn-small secondary">Onboarding neu starten</button>
+    <button id="logout">Abmelden</button>
+  </div>
 </header>
 
 <main>
@@ -312,6 +316,7 @@
   const nameField = document.getElementById("name-field");
   const userNameEl = document.getElementById("user-name");
   const logoutBtn = document.getElementById("logout");
+  const restartOnboardingBtn = document.getElementById("restart-onboarding-btn");
   const waveAnimation = document.getElementById("wave-animation");
   const waveImg = document.getElementById("wave-img");
 
@@ -522,6 +527,22 @@
         onboardingStep = result.onboarding_step;
         renderOnboardingStep();
       }
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  restartOnboardingBtn.addEventListener("click", async () => {
+    try {
+      const result = await apiFetch("/api/onboarding", {
+        method: "PATCH",
+        body: JSON.stringify({ step: 0, completed: false }),
+      });
+      const storedUser = JSON.parse(localStorage.getItem("user"));
+      storedUser.onboarding_status = result.onboarding_status;
+      storedUser.onboarding_step = result.onboarding_step;
+      localStorage.setItem("user", JSON.stringify(storedUser));
+      showOnboarding(storedUser);
     } catch (err) {
       console.error(err);
     }
