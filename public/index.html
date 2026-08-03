@@ -193,6 +193,22 @@
   }
   .choice-btn.active { background: var(--accent); color: #111; border-color: var(--accent); }
   #onboarding-next-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .limitation-detail-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .limitation-detail-block .choice-btn { font-size: 0.85rem; padding: 10px 12px; }
+  .limitation-detail-block label { margin: 12px 0 6px; }
+  textarea.limitation-note {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.9rem;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 60px;
+  }
+  .limitation-disclaimer { margin-top: 20px; font-size: 0.78rem; line-height: 1.4; }
   .add-exercise-form { margin-top: 10px; }
   .add-exercise-form input { font-size: 0.9rem; padding: 8px 10px; }
   .muted { color: var(--muted); font-size: 0.85rem; }
@@ -561,6 +577,27 @@
 
   const STANDARD_GYM_EQUIPMENT = ["dumbbells", "barbell", "cable_machine", "bench", "machines"];
 
+  const LIMITATION_AREAS = [
+    { value: "shoulder", label: "Schulter" },
+    { value: "neck", label: "Nacken" },
+    { value: "upper_back", label: "Oberer Rücken" },
+    { value: "lower_back", label: "Unterer Rücken" },
+    { value: "elbow", label: "Ellenbogen" },
+    { value: "wrist", label: "Handgelenk" },
+    { value: "hip", label: "Hüfte" },
+    { value: "knee", label: "Knie" },
+    { value: "ankle_foot", label: "Sprunggelenk/Fuß" },
+    { value: "cardio_respiratory", label: "Herz-Kreislauf oder Atmung" },
+    { value: "other", label: "Sonstige Einschränkung" },
+  ];
+
+  const LIMITATION_HANDLING_OPTIONS = [
+    { value: "reduce_load", label: "Belastung vorsichtig reduzieren" },
+    { value: "avoid_movements", label: "Bestimmte Bewegungen vermeiden" },
+    { value: "exclude_area", label: "Bereich aktuell vollständig aussparen" },
+    { value: "describe", label: "Ich möchte es genauer beschreiben" },
+  ];
+
   const ONBOARDING_STEPS = [
     { title: "Willkommen bei Gaincoon!", text: "Lass uns dein Training gemeinsam planen." },
     {
@@ -655,7 +692,13 @@
         { value: "returning_after_break", label: "Ich steige nach einer längeren Pause wieder ein" },
       ],
     },
-    { title: "Beschwerden oder Einschränkungen", text: "(folgt als nächstes Arbeitspaket)" },
+    {
+      title: "Hast du aktuell Beschwerden, Verletzungen oder körperliche Einschränkungen, die wir bei deinem Training berücksichtigen sollen?",
+      text: "",
+      type: "limitations",
+      key: "hasLimitations",
+    },
+    { title: "Kurse und andere feste Trainingseinheiten", text: "(folgt als nächstes Arbeitspaket)" },
     { title: "Präferenzen und Übungen", text: "(folgt als nächstes Arbeitspaket)" },
     { title: "Zusammenfassung", text: "(folgt als nächstes Arbeitspaket)" },
   ];
@@ -750,6 +793,135 @@
         onboardingChoices.appendChild(btn);
       });
       onboardingNextBtn.disabled = selected.length < minCount;
+    } else if (step.type === "limitations") {
+      onboardingChoices.classList.remove("hidden");
+      onboardingChoices.innerHTML = "";
+
+      const hasLimitations = onboardingData.hasLimitations;
+
+      const gateWrap = document.createElement("div");
+      gateWrap.className = "onboarding-choices";
+
+      const noBtn = document.createElement("button");
+      noBtn.type = "button";
+      noBtn.className = "choice-btn";
+      noBtn.textContent = "Nein, ich kann ohne Einschränkungen trainieren";
+      noBtn.classList.toggle("active", hasLimitations === false);
+      noBtn.addEventListener("click", () => {
+        onboardingData.hasLimitations = false;
+        onboardingData.limitationAreas = [];
+        onboardingData.limitationDetails = {};
+        renderOnboardingStep();
+      });
+      gateWrap.appendChild(noBtn);
+
+      const yesBtn = document.createElement("button");
+      yesBtn.type = "button";
+      yesBtn.className = "choice-btn";
+      yesBtn.textContent = "Ja, das möchte ich angeben";
+      yesBtn.classList.toggle("active", hasLimitations === true);
+      yesBtn.addEventListener("click", () => {
+        onboardingData.hasLimitations = true;
+        if (!Array.isArray(onboardingData.limitationAreas)) onboardingData.limitationAreas = [];
+        if (!onboardingData.limitationDetails) onboardingData.limitationDetails = {};
+        renderOnboardingStep();
+      });
+      gateWrap.appendChild(yesBtn);
+
+      onboardingChoices.appendChild(gateWrap);
+
+      let allSelectedAreasHandled = true;
+
+      if (hasLimitations === true) {
+        const selectedAreas = Array.isArray(onboardingData.limitationAreas) ? onboardingData.limitationAreas : [];
+
+        const areasWrap = document.createElement("div");
+        areasWrap.className = "onboarding-choices";
+        areasWrap.style.marginTop = "16px";
+        LIMITATION_AREAS.forEach((area) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "choice-btn";
+          btn.textContent = area.label;
+          btn.classList.toggle("active", selectedAreas.includes(area.value));
+          btn.addEventListener("click", () => {
+            const current = Array.isArray(onboardingData.limitationAreas) ? onboardingData.limitationAreas : [];
+            const idx = current.indexOf(area.value);
+            if (idx === -1) {
+              current.push(area.value);
+            } else {
+              current.splice(idx, 1);
+              delete onboardingData.limitationDetails[area.value];
+            }
+            onboardingData.limitationAreas = current;
+            renderOnboardingStep();
+          });
+          areasWrap.appendChild(btn);
+        });
+        onboardingChoices.appendChild(areasWrap);
+
+        selectedAreas.forEach((areaValue) => {
+          const area = LIMITATION_AREAS.find((a) => a.value === areaValue);
+          if (!area) return;
+          const details = onboardingData.limitationDetails[areaValue] || {};
+          if (!details.handling) allSelectedAreasHandled = false;
+
+          const block = document.createElement("div");
+          block.className = "limitation-detail-block";
+
+          const heading = document.createElement("p");
+          heading.className = "muted";
+          heading.textContent = `${area.label}: Wie soll Gaincoon damit umgehen?`;
+          block.appendChild(heading);
+
+          const handlingWrap = document.createElement("div");
+          handlingWrap.className = "onboarding-choices";
+          LIMITATION_HANDLING_OPTIONS.forEach((opt) => {
+            const hBtn = document.createElement("button");
+            hBtn.type = "button";
+            hBtn.className = "choice-btn";
+            hBtn.textContent = opt.label;
+            hBtn.classList.toggle("active", details.handling === opt.value);
+            hBtn.addEventListener("click", () => {
+              onboardingData.limitationDetails[areaValue] = {
+                ...onboardingData.limitationDetails[areaValue],
+                handling: opt.value,
+              };
+              renderOnboardingStep();
+            });
+            handlingWrap.appendChild(hBtn);
+          });
+          block.appendChild(handlingWrap);
+
+          const noteLabel = document.createElement("label");
+          noteLabel.textContent = "Was sollten wir darüber wissen? (optional)";
+          block.appendChild(noteLabel);
+
+          const noteInput = document.createElement("textarea");
+          noteInput.className = "limitation-note";
+          noteInput.value = details.note || "";
+          noteInput.addEventListener("input", () => {
+            onboardingData.limitationDetails[areaValue] = {
+              ...onboardingData.limitationDetails[areaValue],
+              note: noteInput.value,
+            };
+          });
+          block.appendChild(noteInput);
+
+          onboardingChoices.appendChild(block);
+        });
+
+        if (selectedAreas.length === 0) allSelectedAreasHandled = false;
+      }
+
+      const disclaimer = document.createElement("p");
+      disclaimer.className = "muted limitation-disclaimer";
+      disclaimer.textContent =
+        "Gaincoon ersetzt keine medizinische Beratung. Bei akuten, ungeklärten oder starken Beschwerden solltest du das Training ärztlich oder physiotherapeutisch abklären lassen.";
+      onboardingChoices.appendChild(disclaimer);
+
+      onboardingNextBtn.disabled =
+        hasLimitations === undefined || (hasLimitations === true && !allSelectedAreasHandled);
     } else {
       onboardingChoices.classList.add("hidden");
       onboardingChoices.innerHTML = "";
