@@ -559,6 +559,8 @@
   // ── Onboarding (Status-Maschine + Persistenz; die meisten Frage-Screens
   //    folgen als eigene Arbeitspakete) ─────────────────────────────────────
 
+  const STANDARD_GYM_EQUIPMENT = ["dumbbells", "barbell", "cable_machine", "bench", "machines"];
+
   const ONBOARDING_STEPS = [
     { title: "Willkommen bei Gaincoon!", text: "Lass uns dein Training gemeinsam planen." },
     {
@@ -594,7 +596,52 @@
         { value: 120, label: "120 Minuten" },
       ],
     },
-    { title: "Trainingsort und verfügbare Geräte", text: "(folgt als nächstes Arbeitspaket)" },
+    {
+      title: "Wo trainierst du hauptsächlich?",
+      text: "",
+      type: "choice",
+      key: "location",
+      choices: [
+        { value: "gym", label: "Fitnessstudio" },
+        { value: "home", label: "Zuhause" },
+        { value: "outdoor", label: "Draußen" },
+        { value: "multiple", label: "An mehreren Orten" },
+      ],
+    },
+    {
+      title: "Ist dein Studio normal ausgestattet?",
+      text: "",
+      type: "choice",
+      key: "gymFullyEquipped",
+      skipIf: (data) => data.location !== "gym",
+      choices: [
+        {
+          value: "full",
+          label: "Ja, vollständig ausgestattet",
+          setData: { equipment: STANDARD_GYM_EQUIPMENT },
+        },
+        { value: "limited", label: "Nur eingeschränkt ausgestattet" },
+      ],
+    },
+    {
+      title: "Welche Geräte hast du zur Verfügung?",
+      text: "Wähle alle Geräte aus, die du nutzen kannst.",
+      type: "multi-choice",
+      key: "equipment",
+      skipIf: (data) => data.location === "gym" && data.gymFullyEquipped === "full",
+      choices: [
+        { value: "bodyweight", label: "Keine Geräte / Körpergewicht" },
+        { value: "mat", label: "Trainingsmatte" },
+        { value: "resistance_bands", label: "Widerstandsbänder" },
+        { value: "dumbbells", label: "Kurzhanteln" },
+        { value: "kettlebell", label: "Kettlebell" },
+        { value: "barbell", label: "Langhantel und Gewichte" },
+        { value: "bench", label: "Hantelbank" },
+        { value: "pull_up_bar", label: "Klimmzugstange" },
+        { value: "rack", label: "Rack" },
+        { value: "cardio_machine", label: "Cardiogerät" },
+      ],
+    },
     { title: "Trainingserfahrung", text: "(folgt als nächstes Arbeitspaket)" },
     { title: "Beschwerden oder Einschränkungen", text: "(folgt als nächstes Arbeitspaket)" },
     { title: "Präferenzen und Übungen", text: "(folgt als nächstes Arbeitspaket)" },
@@ -658,6 +705,7 @@
         btn.classList.toggle("active", onboardingData[step.key] === choice.value);
         btn.addEventListener("click", () => {
           onboardingData[step.key] = choice.value;
+          if (choice.setData) Object.assign(onboardingData, choice.setData);
           renderOnboardingStep();
         });
         onboardingChoices.appendChild(btn);
@@ -697,15 +745,25 @@
     }
   }
 
+  function nextVisibleStepIndex(fromIndex) {
+    let idx = fromIndex + 1;
+    while (idx < ONBOARDING_STEPS.length && ONBOARDING_STEPS[idx].skipIf?.(onboardingData)) {
+      idx++;
+    }
+    return idx;
+  }
+
   onboardingNextBtn.addEventListener("click", async () => {
     const step = ONBOARDING_STEPS[onboardingStep] || ONBOARDING_STEPS[0];
     const isLast = onboardingStep === ONBOARDING_STEPS.length - 1;
-    const data = step.key ? { [step.key]: onboardingData[step.key] } : undefined;
+    // volle onboardingData mitschicken (nicht nur den aktuellen Key), damit z.B. das
+    // per setData automatisch gesetzte "equipment" beim Gym-Schritt auch persistiert wird
+    const data = Object.keys(onboardingData).length ? onboardingData : undefined;
     try {
       const result = await apiFetch("/api/onboarding", {
         method: "PATCH",
         body: JSON.stringify({
-          step: isLast ? onboardingStep : onboardingStep + 1,
+          step: isLast ? onboardingStep : nextVisibleStepIndex(onboardingStep),
           completed: isLast,
           data,
         }),
