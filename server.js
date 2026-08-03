@@ -24,6 +24,25 @@ const pool = new Pool({
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const FEELINGS = ["too_light", "comfortable", "too_heavy"];
 
+// ── Übungskatalog: Vokabular ────────────────────────────────────────────────
+const EXERCISE_CATEGORIES = [
+  "chest", "back", "shoulders", "biceps", "triceps", "legs", "glutes", "core", "full_body",
+];
+const EXERCISE_MUSCLE_GROUPS = [
+  "chest", "lats", "upper_back", "lower_back",
+  "front_delts", "side_delts", "rear_delts",
+  "biceps", "triceps", "forearms",
+  "abs", "obliques",
+  "quads", "hamstrings", "glutes", "calves", "adductors", "abductors",
+];
+const EXERCISE_EQUIPMENT = [
+  "barbell", "dumbbells", "ez_bar", "kettlebell", "cable_machine", "machine",
+  "bench", "rack", "pull_up_bar", "resistance_band", "back_extension_bench",
+];
+const EXERCISE_DIFFICULTIES = ["beginner", "intermediate", "advanced"];
+
+const exerciseCatalogSeed = require("./exercise-catalog-seed");
+
 async function initDB() {
   const client = await pool.connect();
   try {
@@ -74,6 +93,19 @@ async function initDB() {
         feeling VARCHAR(20),
         logged_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS exercise_catalog (
+        id SERIAL PRIMARY KEY,
+        slug VARCHAR(150) UNIQUE NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        category VARCHAR(30) NOT NULL,
+        primary_muscle_groups TEXT[] NOT NULL,
+        secondary_muscle_groups TEXT[] NOT NULL DEFAULT '{}',
+        required_equipment TEXT[] NOT NULL DEFAULT '{}',
+        difficulty VARCHAR(20) NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
     await client.query(`DROP TABLE IF EXISTS exercise_logs CASCADE;`);
     await client.query(`
@@ -81,8 +113,64 @@ async function initDB() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_step INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_data JSONB NOT NULL DEFAULT '{}'::jsonb;
     `);
+    await seedExerciseCatalog(client);
   } finally {
     client.release();
+  }
+}
+
+function validateExerciseCatalogSeed() {
+  const seenSlugs = new Set();
+  for (const ex of exerciseCatalogSeed) {
+    if (seenSlugs.has(ex.slug)) throw new Error(`Übungskatalog-Seed: doppelter slug "${ex.slug}"`);
+    seenSlugs.add(ex.slug);
+    if (!EXERCISE_CATEGORIES.includes(ex.category)) {
+      throw new Error(`Übungskatalog-Seed: ungültige category "${ex.category}" bei "${ex.slug}"`);
+    }
+    if (!EXERCISE_DIFFICULTIES.includes(ex.difficulty)) {
+      throw new Error(`Übungskatalog-Seed: ungültige difficulty "${ex.difficulty}" bei "${ex.slug}"`);
+    }
+    if (!ex.primaryMuscleGroups?.length) {
+      throw new Error(`Übungskatalog-Seed: "${ex.slug}" braucht mindestens eine primäre Muskelgruppe`);
+    }
+    for (const mg of [...ex.primaryMuscleGroups, ...(ex.secondaryMuscleGroups || [])]) {
+      if (!EXERCISE_MUSCLE_GROUPS.includes(mg)) {
+        throw new Error(`Übungskatalog-Seed: ungültige Muskelgruppe "${mg}" bei "${ex.slug}"`);
+      }
+    }
+    for (const eq of ex.requiredEquipment || []) {
+      if (!EXERCISE_EQUIPMENT.includes(eq)) {
+        throw new Error(`Übungskatalog-Seed: ungültiges Gerät "${eq}" bei "${ex.slug}"`);
+      }
+    }
+  }
+}
+
+async function seedExerciseCatalog(client) {
+  validateExerciseCatalogSeed();
+  for (const ex of exerciseCatalogSeed) {
+    await client.query(
+      `INSERT INTO exercise_catalog
+         (slug, name, category, primary_muscle_groups, secondary_muscle_groups, required_equipment, difficulty, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+       ON CONFLICT (slug) DO UPDATE SET
+         name = EXCLUDED.name,
+         category = EXCLUDED.category,
+         primary_muscle_groups = EXCLUDED.primary_muscle_groups,
+         secondary_muscle_groups = EXCLUDED.secondary_muscle_groups,
+         required_equipment = EXCLUDED.required_equipment,
+         difficulty = EXCLUDED.difficulty,
+         is_active = true`,
+      [
+        ex.slug,
+        ex.name,
+        ex.category,
+        ex.primaryMuscleGroups,
+        ex.secondaryMuscleGroups || [],
+        ex.requiredEquipment || [],
+        ex.difficulty,
+      ]
+    );
   }
 }
 
@@ -190,6 +278,53 @@ app.patch("/api/onboarding", requireAuth, async (req, res) => {
     [status, step, JSON.stringify(data || {}), req.user.id]
   );
   res.json(result.rows[0]);
+});
+
+// ── Übungskatalog ─────────────────────────────────────────────────────────────
+
+app.get("/api/exercise-catalog", requireAuth, async (req, res) => {
+  const { name, category, muscleGroup, equipment } = req.query;
+  const conditions = ["is_active = true"];
+  const params = [];
+
+  if (name) {
+    params.push(`%${name}%`);
+    conditions.push(`name ILIKE $${params.length}`);
+  }
+  if (category) {
+    if (!EXERCISE_CATEGORIES.includes(category)) {
+      return res.status(400).json({ error: `category muss einer von ${EXERCISE_CATEGORIES.join(", ")} sein` });
+    }
+    params.push(category);
+    conditions.push(`category = $${params.length}`);
+  }
+  if (muscleGroup) {
+    if (!EXERCISE_MUSCLE_GROUPS.includes(muscleGroup)) {
+      return res.status(400).json({ error: `muscleGroup muss einer von ${EXERCISE_MUSCLE_GROUPS.join(", ")} sein` });
+    }
+    params.push(muscleGroup);
+    conditions.push(`($${params.length} = ANY(primary_muscle_groups) OR $${params.length} = ANY(secondary_muscle_groups))`);
+  }
+  if (equipment) {
+    if (!EXERCISE_EQUIPMENT.includes(equipment)) {
+      return res.status(400).json({ error: `equipment muss einer von ${EXERCISE_EQUIPMENT.join(", ")} sein` });
+    }
+    params.push(equipment);
+    conditions.push(`$${params.length} = ANY(required_equipment)`);
+  }
+
+  const result = await pool.query(
+    `SELECT id, slug, name, category,
+            primary_muscle_groups AS "primaryMuscleGroups",
+            secondary_muscle_groups AS "secondaryMuscleGroups",
+            required_equipment AS "requiredEquipment",
+            difficulty
+     FROM exercise_catalog
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY name`,
+    params
+  );
+  res.json(result.rows);
 });
 
 // ── Workout days & exercises ─────────────────────────────────────────────────
