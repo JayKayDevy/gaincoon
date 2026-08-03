@@ -589,7 +589,14 @@
         { value: 7, label: "7 Tage" },
       ],
     },
-    { title: "Mögliche Wochentage", text: "(folgt als nächstes Arbeitspaket)" },
+    {
+      title: "An welchen Wochentagen könntest du trainieren?",
+      text: "",
+      type: "multi-choice",
+      key: "weekdays",
+      minCountKey: "daysPerWeek",
+      choices: WEEKDAY_ORDER.map((wd) => ({ value: wd, label: WEEKDAY_LABELS[wd] })),
+    },
     { title: "Dauer einer Trainingseinheit", text: "(folgt als nächstes Arbeitspaket)" },
     { title: "Trainingsort und verfügbare Geräte", text: "(folgt als nächstes Arbeitspaket)" },
     { title: "Trainingserfahrung", text: "(folgt als nächstes Arbeitspaket)" },
@@ -660,6 +667,29 @@
         onboardingChoices.appendChild(btn);
       });
       onboardingNextBtn.disabled = !onboardingData[step.key];
+    } else if (step.type === "multi-choice") {
+      const minCount = (step.minCountKey && onboardingData[step.minCountKey]) || 1;
+      const selected = Array.isArray(onboardingData[step.key]) ? onboardingData[step.key] : [];
+      onboardingStepText.textContent = `Wähle mindestens ${minCount} Tag${minCount === 1 ? "" : "e"} aus.`;
+      onboardingChoices.classList.remove("hidden");
+      onboardingChoices.innerHTML = "";
+      step.choices.forEach((choice) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "choice-btn";
+        btn.textContent = choice.label;
+        btn.classList.toggle("active", selected.includes(choice.value));
+        btn.addEventListener("click", () => {
+          const current = Array.isArray(onboardingData[step.key]) ? onboardingData[step.key] : [];
+          const idx = current.indexOf(choice.value);
+          if (idx === -1) current.push(choice.value);
+          else current.splice(idx, 1);
+          onboardingData[step.key] = current;
+          renderOnboardingStep();
+        });
+        onboardingChoices.appendChild(btn);
+      });
+      onboardingNextBtn.disabled = selected.length < minCount;
     } else {
       onboardingChoices.classList.add("hidden");
       onboardingChoices.innerHTML = "";
@@ -670,7 +700,7 @@
   onboardingNextBtn.addEventListener("click", async () => {
     const step = ONBOARDING_STEPS[onboardingStep] || ONBOARDING_STEPS[0];
     const isLast = onboardingStep === ONBOARDING_STEPS.length - 1;
-    const data = step.type === "choice" ? { [step.key]: onboardingData[step.key] } : undefined;
+    const data = step.key ? { [step.key]: onboardingData[step.key] } : undefined;
     try {
       const result = await apiFetch("/api/onboarding", {
         method: "PATCH",
