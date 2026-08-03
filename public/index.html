@@ -193,6 +193,13 @@
   }
   .choice-btn.active { background: var(--accent); color: #111; border-color: var(--accent); }
   #onboarding-next-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .onboarding-progress-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 6px; }
+  .onboarding-progress-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 16px; }
+  #onboarding-progress-bar-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; transition: width 0.25s ease; }
+  .onboarding-nav-row { display: flex; gap: 10px; }
+  .onboarding-nav-row button { margin-top: 20px; }
+  #onboarding-back-btn { flex: 0 0 auto; width: auto; padding: 12px 18px; }
+  #onboarding-next-btn { flex: 1; }
   .limitation-detail-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
   .limitation-detail-block .choice-btn { font-size: 0.85rem; padding: 10px 12px; }
   .limitation-detail-block label { margin: 12px 0 6px; }
@@ -306,10 +313,17 @@
   </div>
 
   <section id="onboarding-view" class="card hidden">
+    <div id="onboarding-progress-label" class="onboarding-progress-label hidden"></div>
+    <div id="onboarding-progress-bar" class="onboarding-progress-bar hidden">
+      <div id="onboarding-progress-bar-fill"></div>
+    </div>
     <h2 id="onboarding-step-title"></h2>
     <p id="onboarding-step-text" class="muted"></p>
     <div id="onboarding-choices" class="onboarding-choices hidden"></div>
-    <button type="button" id="onboarding-next-btn">Weiter</button>
+    <div class="onboarding-nav-row">
+      <button type="button" id="onboarding-back-btn" class="secondary btn-small hidden">Zurück</button>
+      <button type="button" id="onboarding-next-btn">Weiter</button>
+    </div>
   </section>
 
   <section id="dashboard-view" class="hidden">
@@ -406,9 +420,13 @@
   const waveImg = document.getElementById("wave-img");
 
   const onboardingView = document.getElementById("onboarding-view");
+  const onboardingProgressLabel = document.getElementById("onboarding-progress-label");
+  const onboardingProgressBar = document.getElementById("onboarding-progress-bar");
+  const onboardingProgressBarFill = document.getElementById("onboarding-progress-bar-fill");
   const onboardingStepTitle = document.getElementById("onboarding-step-title");
   const onboardingStepText = document.getElementById("onboarding-step-text");
   const onboardingChoices = document.getElementById("onboarding-choices");
+  const onboardingBackBtn = document.getElementById("onboarding-back-btn");
   const onboardingNextBtn = document.getElementById("onboarding-next-btn");
 
   const daysList = document.getElementById("days-list");
@@ -749,6 +767,20 @@
     onboardingNextBtn.textContent =
       onboardingStep === ONBOARDING_STEPS.length - 1 ? "Fertig" : "Weiter";
 
+    onboardingBackBtn.classList.toggle("hidden", onboardingStep === 0);
+
+    if (onboardingStep === 0) {
+      onboardingProgressLabel.classList.add("hidden");
+      onboardingProgressBar.classList.add("hidden");
+    } else {
+      const visible = visibleStepIndices();
+      const position = Math.max(visible.indexOf(onboardingStep) + 1, 1);
+      onboardingProgressLabel.textContent = `Frage ${position} von ${visible.length}`;
+      onboardingProgressBarFill.style.width = `${(position / visible.length) * 100}%`;
+      onboardingProgressLabel.classList.remove("hidden");
+      onboardingProgressBar.classList.remove("hidden");
+    }
+
     if (step.type === "choice") {
       onboardingChoices.classList.remove("hidden");
       onboardingChoices.innerHTML = "";
@@ -937,27 +969,59 @@
     return idx;
   }
 
-  onboardingNextBtn.addEventListener("click", async () => {
-    const step = ONBOARDING_STEPS[onboardingStep] || ONBOARDING_STEPS[0];
-    const isLast = onboardingStep === ONBOARDING_STEPS.length - 1;
-    // volle onboardingData mitschicken (nicht nur den aktuellen Key), damit z.B. das
-    // per setData automatisch gesetzte "equipment" beim Gym-Schritt auch persistiert wird
+  function prevVisibleStepIndex(fromIndex) {
+    let idx = fromIndex - 1;
+    while (idx > 0 && ONBOARDING_STEPS[idx].skipIf?.(onboardingData)) {
+      idx--;
+    }
+    return idx;
+  }
+
+  // Für die Fortschrittsanzeige: alle aktuell sichtbaren (nicht per skipIf
+  // übersprungenen) Schritt-Indizes außer der Begrüßung (Index 0), die keine
+  // echte Frage ist. Ändert sich dynamisch mit onboardingData (z.B. wenn ein
+  // Studio-Besuch die Geräteauswahl überspringt).
+  function visibleStepIndices() {
+    const indices = [];
+    for (let i = 1; i < ONBOARDING_STEPS.length; i++) {
+      if (!ONBOARDING_STEPS[i].skipIf?.(onboardingData)) indices.push(i);
+    }
+    return indices;
+  }
+
+  async function persistOnboardingStep(step, completed) {
     const data = Object.keys(onboardingData).length ? onboardingData : undefined;
+    const result = await apiFetch("/api/onboarding", {
+      method: "PATCH",
+      body: JSON.stringify({ step, completed, data }),
+    });
+    const storedUser = JSON.parse(localStorage.getItem("user"));
+    storedUser.onboarding_status = result.onboarding_status;
+    storedUser.onboarding_step = result.onboarding_step;
+    storedUser.onboarding_data = result.onboarding_data;
+    localStorage.setItem("user", JSON.stringify(storedUser));
+    onboardingData = result.onboarding_data || {};
+    return result;
+  }
+
+  onboardingBackBtn.addEventListener("click", async () => {
+    if (onboardingStep === 0) return;
     try {
-      const result = await apiFetch("/api/onboarding", {
-        method: "PATCH",
-        body: JSON.stringify({
-          step: isLast ? onboardingStep : nextVisibleStepIndex(onboardingStep),
-          completed: isLast,
-          data,
-        }),
-      });
-      const storedUser = JSON.parse(localStorage.getItem("user"));
-      storedUser.onboarding_status = result.onboarding_status;
-      storedUser.onboarding_step = result.onboarding_step;
-      storedUser.onboarding_data = result.onboarding_data;
-      localStorage.setItem("user", JSON.stringify(storedUser));
-      onboardingData = result.onboarding_data || {};
+      const result = await persistOnboardingStep(prevVisibleStepIndex(onboardingStep), false);
+      onboardingStep = result.onboarding_step;
+      renderOnboardingStep();
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  onboardingNextBtn.addEventListener("click", async () => {
+    const isLast = onboardingStep === ONBOARDING_STEPS.length - 1;
+    try {
+      const result = await persistOnboardingStep(
+        isLast ? onboardingStep : nextVisibleStepIndex(onboardingStep),
+        isLast
+      );
       if (isLast) {
         showDashboard();
       } else {
