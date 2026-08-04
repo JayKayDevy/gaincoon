@@ -947,8 +947,21 @@
     recurringSessionAddBtn.classList.remove("hidden");
   }
 
+  function sortRecurringSessions(sessions) {
+    return [...sessions].sort((a, b) => {
+      const dayDiff = WEEKDAY_ORDER.indexOf(a.weekday) - WEEKDAY_ORDER.indexOf(b.weekday);
+      if (dayDiff !== 0) return dayDiff;
+      if (!a.time && !b.time) return 0;
+      if (!a.time) return 1;
+      if (!b.time) return -1;
+      return a.time.localeCompare(b.time);
+    });
+  }
+
   function renderRecurringSessionsList() {
-    const sessions = Array.isArray(onboardingData.recurringSessions) ? onboardingData.recurringSessions : [];
+    const sessions = sortRecurringSessions(
+      Array.isArray(onboardingData.recurringSessions) ? onboardingData.recurringSessions : []
+    );
     recurringSessionsList.innerHTML = sessions
       .map((s) => {
         const categoryLabel = COURSE_CATEGORIES.find((c) => c.value === s.category)?.label || s.category;
@@ -1245,7 +1258,7 @@
     if (!onboardingData.hasRecurringSessions || !onboardingData.recurringSessions?.length) {
       return "Keine festen Einheiten";
     }
-    return onboardingData.recurringSessions
+    return sortRecurringSessions(onboardingData.recurringSessions)
       .map((s) => {
         const catLabel = COURSE_CATEGORIES.find((c) => c.value === s.category)?.label || s.category;
         const intLabel = COURSE_INTENSITIES.find((i) => i.value === s.intensity)?.label || s.intensity;
