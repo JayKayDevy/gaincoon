@@ -988,7 +988,7 @@
   recurringSessionAddBtn.addEventListener("click", () => openRecurringSessionForm(null));
   recurringSessionCancelBtn.addEventListener("click", () => closeRecurringSessionForm());
 
-  recurringSessionsList.addEventListener("click", (e) => {
+  recurringSessionsList.addEventListener("click", async (e) => {
     const row = e.target.closest(".recurring-session-row");
     if (!row) return;
     const id = row.dataset.id;
@@ -1001,15 +1001,24 @@
       openRecurringSessionForm(entry);
     } else if (e.target.closest(".delete-recurring-session")) {
       if (!confirm("Einheit wirklich löschen?")) return;
+      const previous = onboardingData.recurringSessions;
       onboardingData.recurringSessions = sessions.filter((s) => String(s.id) !== id);
       if (recurringSessionDraftId === entry.id) closeRecurringSessionForm();
       renderRecurringSessionsList();
       onboardingNextBtn.disabled =
         onboardingData.hasRecurringSessions === true && onboardingData.recurringSessions.length === 0;
+      try {
+        await persistOnboardingStep(onboardingStep, false);
+      } catch (err) {
+        console.error(err);
+        onboardingData.recurringSessions = previous;
+        renderRecurringSessionsList();
+        alert("Löschen fehlgeschlagen. Bitte erneut versuchen.");
+      }
     }
   });
 
-  recurringSessionSaveBtn.addEventListener("click", () => {
+  recurringSessionSaveBtn.addEventListener("click", async () => {
     const name = recurringSessionNameInput.value.trim();
     if (!name) {
       recurringSessionFormError.textContent = "Bitte einen Namen angeben.";
@@ -1035,6 +1044,16 @@
       const idx = onboardingData.recurringSessions.findIndex((s) => s.id === recurringSessionDraftId);
       if (idx !== -1) onboardingData.recurringSessions[idx] = entry;
     }
+    recurringSessionSaveBtn.disabled = true;
+    try {
+      await persistOnboardingStep(onboardingStep, false);
+    } catch (err) {
+      console.error(err);
+      recurringSessionFormError.textContent = "Speichern fehlgeschlagen. Bitte erneut versuchen.";
+      recurringSessionSaveBtn.disabled = false;
+      return;
+    }
+    recurringSessionSaveBtn.disabled = false;
     closeRecurringSessionForm();
     renderRecurringSessionsList();
     onboardingNextBtn.disabled = false;
