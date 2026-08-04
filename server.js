@@ -40,6 +40,7 @@ const EXERCISE_EQUIPMENT = [
   "bench", "rack", "pull_up_bar", "resistance_band", "back_extension_bench",
 ];
 const EXERCISE_DIFFICULTIES = ["beginner", "intermediate", "advanced"];
+const EXERCISE_PREFERENCES = ["preferred", "avoid"];
 
 const exerciseCatalogSeed = require("./exercise-catalog-seed");
 
@@ -105,6 +106,16 @@ async function initDB() {
         difficulty VARCHAR(20) NOT NULL,
         is_active BOOLEAN NOT NULL DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS exercise_preferences (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        exercise_id INTEGER REFERENCES exercise_catalog(id) ON DELETE CASCADE,
+        preference VARCHAR(20) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (user_id, exercise_id)
       );
     `);
     await client.query(`DROP TABLE IF EXISTS exercise_logs CASCADE;`);
@@ -323,6 +334,58 @@ app.get("/api/exercise-catalog", requireAuth, async (req, res) => {
      WHERE ${conditions.join(" AND ")}
      ORDER BY name`,
     params
+  );
+  res.json(result.rows);
+});
+
+app.get("/api/exercise-preferences", requireAuth, async (req, res) => {
+  const result = await pool.query(
+    `SELECT exercise_id AS "exerciseId", preference FROM exercise_preferences WHERE user_id = $1`,
+    [req.user.id]
+  );
+  res.json(result.rows);
+});
+
+app.put("/api/exercise-preferences", requireAuth, async (req, res) => {
+  const { preferences } = req.body || {};
+  if (!Array.isArray(preferences)) {
+    return res.status(400).json({ error: "preferences muss ein Array sein" });
+  }
+  for (const p of preferences) {
+    if (!Number.isInteger(p?.exerciseId) || !EXERCISE_PREFERENCES.includes(p?.preference)) {
+      return res.status(400).json({
+        error: `jeder Eintrag braucht eine ganzzahlige exerciseId und preference (${EXERCISE_PREFERENCES.join(", ")})`,
+      });
+    }
+  }
+
+  const exerciseIds = preferences.map((p) => p.exerciseId);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `DELETE FROM exercise_preferences WHERE user_id = $1 AND NOT (exercise_id = ANY($2::int[]))`,
+      [req.user.id, exerciseIds]
+    );
+    for (const p of preferences) {
+      await client.query(
+        `INSERT INTO exercise_preferences (user_id, exercise_id, preference, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (user_id, exercise_id) DO UPDATE SET preference = EXCLUDED.preference, updated_at = NOW()`,
+        [req.user.id, p.exerciseId, p.preference]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const result = await pool.query(
+    `SELECT exercise_id AS "exerciseId", preference FROM exercise_preferences WHERE user_id = $1`,
+    [req.user.id]
   );
   res.json(result.rows);
 });

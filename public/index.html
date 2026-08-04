@@ -95,7 +95,6 @@
   }
   #logout { width: auto; margin: 0; padding: 8px 14px; font-size: 0.85rem; }
   .header-actions { display: flex; align-items: center; gap: 8px; }
-  .hidden { display: none; }
 
   body.has-nav main { padding-bottom: 112px; }
   #bottom-nav {
@@ -216,6 +215,84 @@
   .recurring-session-row .exercise-actions { flex-shrink: 0; }
   #recurring-session-form-card { margin-top: 16px; }
   #recurring-session-intensity-group { margin-top: 6px; }
+
+  #exercise-prefs-extra { margin-top: 16px; }
+  #exercise-prefs-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    margin: 0 -10px;
+    background: rgba(23, 23, 27, 0.72);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  #exercise-prefs-search {
+    flex: 1;
+    padding: 9px 12px;
+    background: rgba(13, 13, 15, 0.6);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.9rem;
+  }
+  #exercise-prefs-category-filter {
+    width: auto;
+    max-width: 40%;
+    padding: 9px 8px;
+    background: rgba(13, 13, 15, 0.6);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.85rem;
+  }
+  #exercise-prefs-counters {
+    display: flex;
+    gap: 14px;
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .error-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #exercise-prefs-list { margin-top: 6px; }
+  .exercise-pref-group { margin-top: 18px; }
+  .exercise-pref-category-title {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .exercise-pref-row {
+    background: rgba(23, 23, 27, 0.85);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .exercise-pref-name { font-weight: 600; font-size: 0.92rem; }
+  .exercise-pref-meta { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+  .exercise-pref-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .pref-btn {
+    flex: 1;
+    width: auto;
+    margin: 0;
+    padding: 8px 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: rgba(13, 13, 15, 0.5);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .pref-btn.pref-preferred.active { background: var(--accent); color: #111; border-color: var(--accent); }
+  .pref-btn.pref-avoid.active { background: var(--danger); color: #111; border-color: var(--danger); }
   .limitation-detail-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
   .limitation-detail-block .choice-btn { font-size: 0.85rem; padding: 10px 12px; }
   .limitation-detail-block label { margin: 12px 0 6px; }
@@ -289,6 +366,11 @@
   }
   #wave-animation.wave-fade { opacity: 0; }
   #wave-animation img { position: absolute; width: 220px; height: 220px; top: -37px; left: 0; display: block; }
+
+  /* Muss die letzte Regel im Stylesheet sein: bei gleicher Spezifität (einzelner
+     Klassen-Selektor) gewinnt sonst eine später definierte .xyz{display:...}-Regel
+     im Cascade-Tiebreak gegen .hidden, obwohl .hidden immer gewinnen soll. */
+  .hidden { display: none; }
 </style>
 </head>
 <body>
@@ -360,6 +442,23 @@
         <button type="button" class="link" id="recurring-session-cancel-btn">Abbrechen</button>
         <p class="error" id="recurring-session-form-error"></p>
       </div>
+    </div>
+
+    <div id="exercise-prefs-extra" class="hidden">
+      <div id="exercise-prefs-toolbar">
+        <input type="text" id="exercise-prefs-search" placeholder="Übung suchen…" autocomplete="off" />
+        <select id="exercise-prefs-category-filter"></select>
+      </div>
+      <div id="exercise-prefs-counters">
+        <span id="exercise-prefs-preferred-count">0 bevorzugt</span>
+        <span id="exercise-prefs-avoid-count">0 vermeiden</span>
+      </div>
+      <p id="exercise-prefs-loading" class="muted hidden">Lade Übungen…</p>
+      <div id="exercise-prefs-error" class="error error-inline hidden">
+        <span id="exercise-prefs-error-text"></span>
+        <button type="button" id="exercise-prefs-retry-btn" class="link">Erneut versuchen</button>
+      </div>
+      <div id="exercise-prefs-list"></div>
     </div>
 
     <div class="onboarding-nav-row">
@@ -486,6 +585,18 @@
   const recurringSessionSaveBtn = document.getElementById("recurring-session-save-btn");
   const recurringSessionCancelBtn = document.getElementById("recurring-session-cancel-btn");
   const recurringSessionFormError = document.getElementById("recurring-session-form-error");
+
+  const exercisePrefsExtra = document.getElementById("exercise-prefs-extra");
+  const exercisePrefsToolbar = document.getElementById("exercise-prefs-toolbar");
+  const exercisePrefsSearchInput = document.getElementById("exercise-prefs-search");
+  const exercisePrefsCategoryFilter = document.getElementById("exercise-prefs-category-filter");
+  const exercisePrefsPreferredCount = document.getElementById("exercise-prefs-preferred-count");
+  const exercisePrefsAvoidCount = document.getElementById("exercise-prefs-avoid-count");
+  const exercisePrefsLoading = document.getElementById("exercise-prefs-loading");
+  const exercisePrefsError = document.getElementById("exercise-prefs-error");
+  const exercisePrefsErrorText = document.getElementById("exercise-prefs-error-text");
+  const exercisePrefsRetryBtn = document.getElementById("exercise-prefs-retry-btn");
+  const exercisePrefsListEl = document.getElementById("exercise-prefs-list");
 
   const daysList = document.getElementById("days-list");
   const emptyState = document.getElementById("empty-state");
@@ -696,6 +807,43 @@
     "Yoga", "Pilates", "Functional Training", "Zumba",
   ];
 
+  // ── Übungskatalog: Vokabular-Labels (müssen zu server.js EXERCISE_* passen) ─
+  const EXERCISE_CATEGORY_ORDER = [
+    "chest", "back", "shoulders", "biceps", "triceps", "legs", "glutes", "core", "full_body",
+  ];
+  const EXERCISE_CATEGORY_LABELS = {
+    chest: "Brust", back: "Rücken", shoulders: "Schultern", biceps: "Bizeps", triceps: "Trizeps",
+    legs: "Beine", glutes: "Gesäß", core: "Core", full_body: "Ganzkörper",
+  };
+  const EXERCISE_MUSCLE_GROUP_LABELS = {
+    chest: "Brust", lats: "Latissimus", upper_back: "Oberer Rücken", lower_back: "Unterer Rücken",
+    front_delts: "Vordere Schulter", side_delts: "Seitliche Schulter", rear_delts: "Hintere Schulter",
+    biceps: "Bizeps", triceps: "Trizeps", forearms: "Unterarme",
+    abs: "Bauch", obliques: "Seitliche Bauchmuskulatur",
+    quads: "Quadrizeps", hamstrings: "Beinbeuger", glutes: "Gesäß", calves: "Waden",
+    adductors: "Adduktoren", abductors: "Abduktoren",
+  };
+  const EXERCISE_EQUIPMENT_LABELS = {
+    barbell: "Langhantel", dumbbells: "Kurzhanteln", ez_bar: "SZ-Stange", kettlebell: "Kettlebell",
+    cable_machine: "Kabelzug", machine: "Maschine", bench: "Hantelbank", rack: "Rack",
+    pull_up_bar: "Klimmzugstange", resistance_band: "Widerstandsband", back_extension_bench: "Rückenstrecker",
+  };
+  // Onboarding-Ausstattungscodes (aus dem "Trainingsort und Geräte"-Schritt) sind ein anderes,
+  // gröberes Vokabular als die Katalog-Gerätecodes - hier die Übersetzung der Codes, die eine
+  // Entsprechung haben. Nicht abgebildete Katalog-Geräte (z.B. ez_bar, back_extension_bench)
+  // sind für Nutzer ohne "vollständig ausgestattetes Fitnessstudio" schlicht nie verfügbar.
+  const ONBOARDING_TO_CATALOG_EQUIPMENT = {
+    resistance_bands: "resistance_band",
+    dumbbells: "dumbbells",
+    kettlebell: "kettlebell",
+    barbell: "barbell",
+    bench: "bench",
+    pull_up_bar: "pull_up_bar",
+    rack: "rack",
+    machines: "machine",
+    cable_machine: "cable_machine",
+  };
+
   // ── Kurse/feste Trainingseinheiten: Formularfelder sind statisches Markup
   //    (nicht dynamisch neu erzeugt wie bei "limitations"), damit Texteingaben
   //    beim Tippen nicht durch ein Re-Render den Fokus verlieren.
@@ -842,6 +990,165 @@
     onboardingNextBtn.disabled = false;
   });
 
+  // ── Übungsvorlieben ──────────────────────────────────────────────────────
+  let exerciseCatalogCache = null; // statischer Referenzkatalog, einmal pro Sitzung geladen
+  let exercisePreferencesDraft = new Map(); // exerciseId -> "preferred" | "avoid"
+  let exercisePreferencesReady = false; // erst true nach erfolgreichem Laden von Katalog + Vorlieben
+  let exerciseAvailableEquipment = null; // Set<catalogEquipmentCode> | null (null = alles verfügbar)
+
+  function computeAvailableEquipment(data) {
+    if (data.location === "gym" && data.gymFullyEquipped === "full") return null;
+    const codes = new Set();
+    (data.equipment || []).forEach((code) => {
+      const mapped = ONBOARDING_TO_CATALOG_EQUIPMENT[code];
+      if (mapped) codes.add(mapped);
+    });
+    return codes;
+  }
+
+  function isExerciseAvailable(ex) {
+    if (exerciseAvailableEquipment === null) return true;
+    if (!ex.requiredEquipment.length) return true;
+    return ex.requiredEquipment.every((eq) => exerciseAvailableEquipment.has(eq));
+  }
+
+  function populateExercisePrefsCategoryFilter() {
+    exercisePrefsCategoryFilter.innerHTML = "";
+    const allOpt = document.createElement("option");
+    allOpt.value = "";
+    allOpt.textContent = "Alle Kategorien";
+    exercisePrefsCategoryFilter.appendChild(allOpt);
+    for (const cat of EXERCISE_CATEGORY_ORDER) {
+      const opt = document.createElement("option");
+      opt.value = cat;
+      opt.textContent = EXERCISE_CATEGORY_LABELS[cat];
+      exercisePrefsCategoryFilter.appendChild(opt);
+    }
+  }
+
+  function updateExercisePrefsCounters() {
+    let preferredCount = 0;
+    let avoidCount = 0;
+    exercisePreferencesDraft.forEach((v) => {
+      if (v === "preferred") preferredCount++;
+      else if (v === "avoid") avoidCount++;
+    });
+    exercisePrefsPreferredCount.textContent = `${preferredCount} bevorzugt`;
+    exercisePrefsAvoidCount.textContent = `${avoidCount} vermeiden`;
+  }
+
+  function renderExercisePreferencesList() {
+    const searchTerm = exercisePrefsSearchInput.value.trim().toLowerCase();
+    const categoryFilter = exercisePrefsCategoryFilter.value;
+
+    const visible = exerciseCatalogCache.filter((ex) => {
+      if (!isExerciseAvailable(ex)) return false;
+      if (categoryFilter && ex.category !== categoryFilter) return false;
+      if (searchTerm && !ex.name.toLowerCase().includes(searchTerm)) return false;
+      return true;
+    });
+
+    const grouped = {};
+    visible.forEach((ex) => {
+      (grouped[ex.category] = grouped[ex.category] || []).push(ex);
+    });
+
+    exercisePrefsListEl.innerHTML =
+      EXERCISE_CATEGORY_ORDER.filter((cat) => grouped[cat]?.length)
+        .map((cat) => {
+          const rows = grouped[cat]
+            .map((ex) => {
+              const pref = exercisePreferencesDraft.get(ex.id);
+              const equipmentLabel = ex.requiredEquipment.length
+                ? ex.requiredEquipment.map((e) => EXERCISE_EQUIPMENT_LABELS[e] || e).join(", ")
+                : "Keine Geräte";
+              const muscleLabel = ex.primaryMuscleGroups.map((m) => EXERCISE_MUSCLE_GROUP_LABELS[m] || m).join(", ");
+              return `
+                <div class="exercise-pref-row" data-id="${ex.id}">
+                  <div class="exercise-pref-info">
+                    <div class="exercise-pref-name">${escapeHtml(ex.name)}</div>
+                    <div class="exercise-pref-meta">${escapeHtml(muscleLabel)} · ${escapeHtml(equipmentLabel)}</div>
+                  </div>
+                  <div class="exercise-pref-actions">
+                    <button type="button" class="pref-btn pref-preferred ${pref === "preferred" ? "active" : ""}" data-pref="preferred">Bevorzugen</button>
+                    <button type="button" class="pref-btn pref-avoid ${pref === "avoid" ? "active" : ""}" data-pref="avoid">Vermeiden</button>
+                  </div>
+                </div>`;
+            })
+            .join("");
+          return `<div class="exercise-pref-group"><h3 class="exercise-pref-category-title">${EXERCISE_CATEGORY_LABELS[cat]}</h3>${rows}</div>`;
+        })
+        .join("") || `<p class="muted">Keine Übungen gefunden.</p>`;
+
+    updateExercisePrefsCounters();
+  }
+
+  exercisePrefsListEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pref-btn");
+    if (!btn) return;
+    const row = e.target.closest(".exercise-pref-row");
+    const exerciseId = Number(row.dataset.id);
+    const clickedPref = btn.dataset.pref;
+    const current = exercisePreferencesDraft.get(exerciseId);
+    if (current === clickedPref) {
+      exercisePreferencesDraft.delete(exerciseId);
+    } else {
+      exercisePreferencesDraft.set(exerciseId, clickedPref);
+    }
+    const newState = exercisePreferencesDraft.get(exerciseId);
+    row.querySelector(".pref-preferred").classList.toggle("active", newState === "preferred");
+    row.querySelector(".pref-avoid").classList.toggle("active", newState === "avoid");
+    updateExercisePrefsCounters();
+  });
+
+  exercisePrefsSearchInput.addEventListener("input", () => renderExercisePreferencesList());
+  exercisePrefsCategoryFilter.addEventListener("change", () => renderExercisePreferencesList());
+  exercisePrefsRetryBtn.addEventListener("click", () => loadExercisePreferencesStep());
+
+  async function loadExercisePreferencesStep() {
+    exercisePreferencesReady = false;
+    onboardingNextBtn.disabled = true;
+    exercisePrefsError.classList.add("hidden");
+    exercisePrefsListEl.innerHTML = "";
+    exercisePrefsLoading.classList.remove("hidden");
+    try {
+      if (!exerciseCatalogCache) {
+        exerciseCatalogCache = await apiFetch("/api/exercise-catalog");
+      }
+      const prefs = await apiFetch("/api/exercise-preferences");
+      exercisePreferencesDraft = new Map(prefs.map((p) => [p.exerciseId, p.preference]));
+      exerciseAvailableEquipment = computeAvailableEquipment(onboardingData);
+      populateExercisePrefsCategoryFilter();
+      exercisePrefsLoading.classList.add("hidden");
+      renderExercisePreferencesList();
+      exercisePreferencesReady = true;
+    } catch (err) {
+      console.error(err);
+      exercisePrefsLoading.classList.add("hidden");
+      exercisePrefsErrorText.textContent = "Übungen konnten nicht geladen werden.";
+      exercisePrefsError.classList.remove("hidden");
+    }
+    onboardingNextBtn.disabled = false;
+  }
+
+  async function saveExercisePreferences() {
+    const preferences = [...exercisePreferencesDraft.entries()].map(([exerciseId, preference]) => ({
+      exerciseId,
+      preference,
+    }));
+    try {
+      await apiFetch("/api/exercise-preferences", {
+        method: "PUT",
+        body: JSON.stringify({ preferences }),
+      });
+      exercisePrefsError.classList.add("hidden");
+    } catch (err) {
+      exercisePrefsErrorText.textContent = "Speichern der Übungsvorlieben fehlgeschlagen. Bitte erneut versuchen.";
+      exercisePrefsError.classList.remove("hidden");
+      throw err;
+    }
+  }
+
   const ONBOARDING_STEPS = [
     { title: "Willkommen bei Gaincoon!", text: "Lass uns dein Training gemeinsam planen." },
     {
@@ -948,7 +1255,11 @@
       type: "recurring-sessions",
       key: "hasRecurringSessions",
     },
-    { title: "Präferenzen und Übungen", text: "(folgt als nächstes Arbeitspaket)" },
+    {
+      title: "Welche Übungen machst du besonders gerne?",
+      text: "Markiere deine Favoriten oder Übungen, die Gaincoon bei deinem Trainingsplan möglichst vermeiden soll. Du musst nicht jede Übung bewerten.",
+      type: "exercise-preferences",
+    },
     { title: "Zusammenfassung", text: "(folgt als nächstes Arbeitspaket)" },
   ];
 
@@ -1232,10 +1543,18 @@
         ? onboardingData.recurringSessions.length
         : 0;
       onboardingNextBtn.disabled = hasSessions === undefined || (hasSessions === true && sessionsCount === 0);
+    } else if (step.type === "exercise-preferences") {
+      onboardingChoices.classList.add("hidden");
+      onboardingChoices.innerHTML = "";
+      recurringSessionsExtra.classList.add("hidden");
+      exercisePrefsExtra.classList.remove("hidden");
+      exercisePrefsSearchInput.value = "";
+      loadExercisePreferencesStep();
     } else {
       onboardingChoices.classList.add("hidden");
       onboardingChoices.innerHTML = "";
       recurringSessionsExtra.classList.add("hidden");
+      exercisePrefsExtra.classList.add("hidden");
       onboardingNextBtn.disabled = false;
     }
   }
@@ -1295,8 +1614,14 @@
   });
 
   onboardingNextBtn.addEventListener("click", async () => {
+    const step = ONBOARDING_STEPS[onboardingStep] || ONBOARDING_STEPS[0];
     const isLast = onboardingStep === ONBOARDING_STEPS.length - 1;
     try {
+      // Nur speichern, wenn Katalog + bestehende Vorlieben erfolgreich geladen wurden -
+      // sonst würde ein leerer Entwurf versehentlich bereits gespeicherte Vorlieben löschen.
+      if (step.type === "exercise-preferences" && exercisePreferencesReady) {
+        await saveExercisePreferences();
+      }
       const result = await persistOnboardingStep(
         isLast ? onboardingStep : nextVisibleStepIndex(onboardingStep),
         isLast
