@@ -926,9 +926,9 @@
     });
   }
 
-  function openRecurringSessionForm(entry) {
-    recurringSessionDraftId = entry ? entry.id : "new";
-    recurringSessionFormTitle.textContent = entry ? "Einheit bearbeiten" : "Neue Einheit";
+  function openRecurringSessionForm(entry, { duplicate = false } = {}) {
+    recurringSessionDraftId = entry && !duplicate ? entry.id : "new";
+    recurringSessionFormTitle.textContent = duplicate ? "Einheit duplizieren" : entry ? "Einheit bearbeiten" : "Neue Einheit";
     recurringSessionNameInput.value = entry?.name || "";
     recurringSessionCategorySelect.value = entry?.category || COURSE_CATEGORIES[0].value;
     recurringSessionWeekdaySelect.value = entry?.weekday || WEEKDAY_ORDER[0];
@@ -976,6 +976,7 @@
               <div class="recurring-session-meta">${meta}</div>
             </div>
             <div class="exercise-actions">
+              <button type="button" class="icon-btn duplicate-recurring-session" title="Duplizieren">⧉</button>
               <button type="button" class="icon-btn edit-recurring-session" title="Bearbeiten">✎</button>
               <button type="button" class="icon-btn delete-recurring-session" title="Einheit löschen">×</button>
             </div>
@@ -994,7 +995,9 @@
     const sessions = onboardingData.recurringSessions || [];
     const entry = sessions.find((s) => String(s.id) === id);
     if (!entry) return;
-    if (e.target.closest(".edit-recurring-session")) {
+    if (e.target.closest(".duplicate-recurring-session")) {
+      openRecurringSessionForm(entry, { duplicate: true });
+    } else if (e.target.closest(".edit-recurring-session")) {
       openRecurringSessionForm(entry);
     } else if (e.target.closest(".delete-recurring-session")) {
       if (!confirm("Einheit wirklich löschen?")) return;
