@@ -43,6 +43,8 @@ const EXERCISE_DIFFICULTIES = ["beginner", "intermediate", "advanced"];
 const EXERCISE_PREFERENCES = ["preferred", "avoid"];
 
 const exerciseCatalogSeed = require("./exercise-catalog-seed");
+const trainingPlanService = require("./training-plan-service");
+const { classifyTrainingPlanError } = require("./training-plan-errors");
 
 async function initDB() {
   const client = await pool.connect();
@@ -117,6 +119,66 @@ async function initDB() {
         updated_at TIMESTAMP DEFAULT NOW(),
         UNIQUE (user_id, exercise_id)
       );
+
+      CREATE TABLE IF NOT EXISTS training_plans (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(200) NOT NULL,
+        goal VARCHAR(30) NOT NULL,
+        split VARCHAR(150) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        version INTEGER NOT NULL DEFAULT 1,
+        description TEXT NOT NULL,
+        progression_note TEXT NOT NULL,
+        safety_note TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS training_plan_sessions (
+        id SERIAL PRIMARY KEY,
+        plan_id INTEGER REFERENCES training_plans(id) ON DELETE CASCADE,
+        weekday VARCHAR(3) NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        title VARCHAR(200) NOT NULL,
+        focus VARCHAR(200) NOT NULL,
+        estimated_duration_minutes INTEGER NOT NULL,
+        rationale TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS training_plan_exercises (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES training_plan_sessions(id) ON DELETE CASCADE,
+        exercise_id INTEGER REFERENCES exercise_catalog(id),
+        order_index INTEGER NOT NULL DEFAULT 0,
+        working_sets INTEGER NOT NULL,
+        target_type VARCHAR(20) NOT NULL,
+        target_min INTEGER NOT NULL,
+        target_max INTEGER NOT NULL,
+        rest_seconds INTEGER NOT NULL,
+        target_rir INTEGER,
+        note TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS training_plan_generations (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        idempotency_key VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        plan_id INTEGER REFERENCES training_plans(id),
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (user_id, idempotency_key)
+      );
+    `);
+    // Nur ein aktiver Plan pro Nutzer bzw. eine laufende Generierung pro Nutzer -
+    // als partieller Unique-Index statt Anwendungslogik, damit das auch bei
+    // parallelen Requests von Postgres selbst atomar durchgesetzt wird.
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_training_plans_one_active_per_user
+        ON training_plans(user_id) WHERE status = 'active';
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_training_plan_generations_one_pending_per_user
+        ON training_plan_generations(user_id) WHERE status = 'pending';
     `);
     await client.query(`DROP TABLE IF EXISTS exercise_logs CASCADE;`);
     await client.query(`
@@ -390,6 +452,80 @@ app.put("/api/exercise-preferences", requireAuth, async (req, res) => {
   res.json(result.rows);
 });
 
+// ── Trainingsplan ─────────────────────────────────────────────────────────────
+// Idempotenz + Parallelitätsschutz laufen vollständig über die DB (partielle
+// Unique-Indizes aus initDB), nicht über In-Memory-Locks - überlebt Neustarts
+// und ist bei mehreren Requests atomar korrekt, ohne eigene Locking-Bibliothek.
+
+const TRAINING_PLAN_CONFLICT_MESSAGE = "Es läuft bereits eine Planerstellung für diesen Nutzer.";
+
+app.post("/api/training-plan/generate", requireAuth, async (req, res) => {
+  const { idempotencyKey } = req.body || {};
+  if (typeof idempotencyKey !== "string" || !idempotencyKey.trim() || idempotencyKey.length > 100) {
+    return res.status(400).json({ error: "idempotencyKey (String, max. 100 Zeichen) erforderlich" });
+  }
+
+  const existing = await pool.query(
+    `SELECT * FROM training_plan_generations WHERE user_id = $1 AND idempotency_key = $2`,
+    [req.user.id, idempotencyKey]
+  );
+  const existingRow = existing.rows[0];
+
+  if (existingRow?.status === "succeeded") {
+    const plan = await trainingPlanService.loadFullPlan(pool, req.user.id, existingRow.plan_id);
+    return res.json({ status: "succeeded", plan });
+  }
+  if (existingRow?.status === "pending") {
+    return res.status(409).json({ error: TRAINING_PLAN_CONFLICT_MESSAGE, conflictType: "already_in_progress" });
+  }
+
+  let generationRow;
+  try {
+    const claim = await pool.query(
+      `INSERT INTO training_plan_generations (user_id, idempotency_key, status)
+       VALUES ($1, $2, 'pending')
+       ON CONFLICT (user_id, idempotency_key)
+       DO UPDATE SET status = 'pending', error_message = NULL, updated_at = NOW()
+       WHERE training_plan_generations.status = 'failed'
+       RETURNING *`,
+      [req.user.id, idempotencyKey]
+    );
+    if (!claim.rows[0]) {
+      return res.status(409).json({ error: TRAINING_PLAN_CONFLICT_MESSAGE, conflictType: "already_in_progress" });
+    }
+    generationRow = claim.rows[0];
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: TRAINING_PLAN_CONFLICT_MESSAGE, conflictType: "already_in_progress" });
+    }
+    throw err;
+  }
+
+  try {
+    const plan = await trainingPlanService.generateAndSaveTrainingPlan(pool, req.user.id, {
+      aiClient: testAIClientOverride || undefined,
+    });
+    await pool.query(
+      `UPDATE training_plan_generations SET status = 'succeeded', plan_id = $1, updated_at = NOW() WHERE id = $2`,
+      [plan.id, generationRow.id]
+    );
+    res.json({ status: "succeeded", plan });
+  } catch (err) {
+    const classified = classifyTrainingPlanError(err);
+    await pool.query(
+      `UPDATE training_plan_generations SET status = 'failed', error_message = $1, updated_at = NOW() WHERE id = $2`,
+      [classified.conflictType, generationRow.id]
+    );
+    res.status(classified.httpStatus).json({ error: classified.publicMessage, conflictType: classified.conflictType });
+  }
+});
+
+app.get("/api/training-plan", requireAuth, async (req, res) => {
+  const plan = await trainingPlanService.loadActivePlan(pool, req.user.id);
+  if (!plan) return res.status(404).json({ error: "Kein aktiver Trainingsplan vorhanden" });
+  res.json({ plan });
+});
+
 // ── Workout days & exercises ─────────────────────────────────────────────────
 
 app.get("/api/workout-days", requireAuth, async (req, res) => {
@@ -537,11 +673,30 @@ app.delete("/api/sets/:id", requireAuth, async (req, res) => {
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-initDB()
-  .then(() => {
-    app.listen(PORT, () => console.log(`Gaincoon läuft auf Port ${PORT}`));
-  })
-  .catch((err) => {
-    console.error("DB-Init fehlgeschlagen:", err);
-    process.exit(1);
-  });
+// Nur beim direkten Start (node server.js) automatisch verbinden + lauschen -
+// Integrationstests importieren `app`/`initDB` selbst und steuern das explizit,
+// gegen eine eigene Wegwerf-Postgres-Instanz.
+if (require.main === module) {
+  initDB()
+    .then(() => {
+      app.listen(PORT, () => console.log(`Gaincoon läuft auf Port ${PORT}`));
+    })
+    .catch((err) => {
+      console.error("DB-Init fehlgeschlagen:", err);
+      process.exit(1);
+    });
+}
+
+// Nur für Tests: erlaubt, den OpenAI-Client der KI-Generierung durch einen Mock
+// zu ersetzen, damit Integrationstests keine echten (kostenpflichtigen)
+// OpenAI-Aufrufe durchführen. Greift nur bei explizit gesetztem NODE_ENV=test,
+// damit dieser Pfad in Produktion nie aktivierbar ist.
+let testAIClientOverride = null;
+function __setTestAIClient(client) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("__setTestAIClient ist nur mit NODE_ENV=test erlaubt.");
+  }
+  testAIClientOverride = client;
+}
+
+module.exports = { app, pool, initDB, __setTestAIClient };

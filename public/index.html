@@ -309,6 +309,69 @@
   .summary-card-content { color: var(--text); font-size: 0.88rem; margin: 8px 0 0; line-height: 1.4; white-space: pre-line; }
   .summary-edit-btn { width: auto; margin: 0; padding: 0; font-size: 0.8rem; flex-shrink: 0; }
   #summary-plan-status { margin-top: 14px; text-align: center; }
+  #summary-plan-status.status-error { color: var(--danger); }
+
+  #plan-content { width: 100%; }
+  .plan-header { margin-bottom: 18px; }
+  .plan-header h2 { margin: 0 0 4px; font-size: 1.3rem; }
+  .plan-header .plan-meta { color: var(--muted); font-size: 0.85rem; margin: 4px 0; }
+  .plan-header .plan-description { margin: 10px 0 0; font-size: 0.92rem; line-height: 1.4; }
+  .plan-header .plan-rationale { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); line-height: 1.4; }
+
+  .plan-week-strip { display: flex; gap: 6px; margin-bottom: 20px; }
+  .plan-week-day {
+    flex: 1;
+    text-align: center;
+    padding: 8px 2px;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .plan-week-day.has-content { border-color: var(--accent); }
+  .plan-week-day .plan-week-day-label { font-size: 0.7rem; color: var(--muted); }
+  .plan-week-day .plan-week-day-dots { display: flex; justify-content: center; gap: 3px; margin-top: 4px; }
+  .plan-week-day-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+  .plan-week-day-dot.strength { background: var(--accent); }
+  .plan-week-day-dot.fixed { background: #4da3ff; }
+
+  .plan-day-card {
+    background: rgba(23, 23, 27, 0.85);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .plan-day-card h3 { margin: 0 0 10px; font-size: 1rem; }
+  .plan-fixed-session {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    background: rgba(77, 163, 255, 0.1);
+    border: 1px solid rgba(77, 163, 255, 0.35);
+    border-radius: 8px;
+    font-size: 0.85rem;
+  }
+  .plan-fixed-session .plan-fixed-session-meta { color: var(--muted); font-size: 0.78rem; }
+  .plan-strength-session { margin-top: 4px; }
+  .plan-strength-session-header { font-weight: 600; font-size: 0.92rem; }
+  .plan-strength-session-meta { color: var(--muted); font-size: 0.78rem; margin: 2px 0 6px; }
+  .plan-strength-session-rationale { color: var(--muted); font-size: 0.8rem; margin: 0 0 10px; line-height: 1.35; }
+  .plan-exercise-row { border-top: 1px solid var(--border); padding: 8px 0; }
+  .plan-exercise-row:first-of-type { border-top: none; }
+  .plan-exercise-name { font-weight: 600; font-size: 0.88rem; }
+  .plan-exercise-params { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+  .plan-exercise-note { font-size: 0.78rem; margin-top: 3px; font-style: italic; }
+
+  .plan-note-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+  .plan-note-card h4 { margin: 0 0 6px; font-size: 0.85rem; }
+  .plan-note-card p { margin: 0; font-size: 0.85rem; line-height: 1.4; color: var(--text); }
+  .plan-note-card.plan-safety-note { color: var(--muted); }
+  .plan-note-card.plan-safety-note p { color: var(--muted); font-size: 0.78rem; }
   .limitation-detail-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
   .limitation-detail-block .choice-btn { font-size: 0.85rem; padding: 10px 12px; }
   .limitation-detail-block label { margin: 12px 0 6px; }
@@ -525,6 +588,20 @@
     </div>
   </section>
 
+  <section id="plan-view" class="hidden">
+    <div class="dashboard-inner">
+      <p id="plan-loading" class="muted hidden">Lade deinen Trainingsplan…</p>
+      <div id="plan-error" class="error error-inline hidden">
+        <span id="plan-error-text"></span>
+        <button type="button" id="plan-retry-btn" class="link">Erneut versuchen</button>
+      </div>
+      <div id="plan-empty" class="empty hidden">
+        <p>Du hast noch keinen Trainingsplan.</p>
+      </div>
+      <div id="plan-content" class="hidden"></div>
+    </div>
+  </section>
+
   <section id="session-view" class="hidden">
     <div class="dashboard-inner">
       <div class="session-header">
@@ -561,6 +638,10 @@
     <svg viewBox="0 0 24 24"><path d="M20.57,14.86L22,13.43L20.57,12L17,15.57L8.43,7L12,3.43L10.57,2L9.14,3.43L7.71,2L5.57,4.14L4.14,2.71L2.71,4.14L4.14,5.57L2,7.71L3.43,9.14L2,10.57L3.43,12L7,8.43L15.57,17L12,20.57L13.43,22L14.86,20.57L16.29,22L18.43,19.86L19.86,21.29L21.29,19.86L19.86,18.43L22,16.29L20.57,14.86Z" /></svg>
     <span>Training</span>
   </button>
+  <button type="button" class="nav-btn" data-nav="plan">
+    <svg viewBox="0 0 24 24"><path d="M19,3H14.82C14.25,1.44 12.53,0.64 11,1.2C10.14,1.5 9.5,2.16 9.18,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M12,3A1,1 0 0,1 13,4A1,1 0 0,1 12,5A1,1 0 0,1 11,4A1,1 0 0,1 12,3M7,7H17V5H19V19H5V5H7V7M17,11H7V9H17V11M15,15H7V13H15V15Z" /></svg>
+    <span>Mein Plan</span>
+  </button>
   <button type="button" class="nav-btn" data-nav="settings">
     <svg viewBox="0 0 24 24"><path d="M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z" /></svg>
     <span>Einstellungen</span>
@@ -571,6 +652,13 @@
   const authView = document.getElementById("auth-view");
   const dashboardView = document.getElementById("dashboard-view");
   const settingsView = document.getElementById("settings-view");
+  const planView = document.getElementById("plan-view");
+  const planLoading = document.getElementById("plan-loading");
+  const planError = document.getElementById("plan-error");
+  const planErrorText = document.getElementById("plan-error-text");
+  const planRetryBtn = document.getElementById("plan-retry-btn");
+  const planEmpty = document.getElementById("plan-empty");
+  const planContent = document.getElementById("plan-content");
   const appHeader = document.getElementById("app-header");
   const bottomNav = document.getElementById("bottom-nav");
   const navBtns = document.querySelectorAll(".nav-btn");
@@ -712,7 +800,12 @@
       }
       if (res.status === 204) return null;
       const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "Fehler");
+      if (!res.ok) {
+        const err = new Error(data?.error || "Fehler");
+        err.status = res.status;
+        err.conflictType = data?.conflictType;
+        throw err;
+      }
       return data;
     } finally {
       hideSpinner();
@@ -756,6 +849,7 @@
     dashboardView.classList.add("hidden");
     onboardingView.classList.add("hidden");
     settingsView.classList.add("hidden");
+    planView.classList.add("hidden");
     appHeader.classList.add("hidden");
     hideBottomNav();
     authView.classList.remove("hidden");
@@ -789,9 +883,163 @@
   navBtns.forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.dataset.nav === "dashboard") showDashboard();
+      else if (btn.dataset.nav === "plan") showPlanView();
       else showSettingsView();
     });
   });
+
+  // ── Trainingsplan (read-only Ansicht) ───────────────────────────────────
+  const PLAN_GOAL_LABELS = {
+    muscle_gain: "Muskeln aufbauen",
+    fat_loss: "Fett verlieren",
+    strength: "Stärker werden",
+    general_fitness: "Allgemein fitter werden",
+    balanced_mix: "Ausgewogener Mix",
+  };
+
+  function showPlanView() {
+    dashboardView.classList.add("hidden");
+    onboardingView.classList.add("hidden");
+    settingsView.classList.add("hidden");
+    planView.classList.remove("hidden");
+    showBottomNav("plan");
+    loadPlanView();
+  }
+
+  function renderPlanWeekStrip(plan, recurringSessionsByDay) {
+    const strengthDaysByWeekday = {};
+    plan.sessions.forEach((s) => (strengthDaysByWeekday[s.weekday] = s));
+    return `
+      <div class="plan-week-strip">
+        ${WEEKDAY_ORDER.map((wd) => {
+          const hasStrength = Boolean(strengthDaysByWeekday[wd]);
+          const hasFixed = Boolean(recurringSessionsByDay[wd]?.length);
+          return `
+            <div class="plan-week-day ${hasStrength || hasFixed ? "has-content" : ""}">
+              <div class="plan-week-day-label">${WEEKDAY_LABELS[wd].slice(0, 2)}</div>
+              <div class="plan-week-day-dots">
+                ${hasFixed ? '<span class="plan-week-day-dot fixed"></span>' : ""}
+                ${hasStrength ? '<span class="plan-week-day-dot strength"></span>' : ""}
+              </div>
+            </div>`;
+        }).join("")}
+      </div>`;
+  }
+
+  function renderPlanExercise(ex) {
+    const targetLabel =
+      ex.targetType === "duration_seconds"
+        ? `${ex.targetMin}–${ex.targetMax} Sek.`
+        : `${ex.targetMin}–${ex.targetMax} Wdh.`;
+    const params = [
+      `${ex.workingSets} Sätze × ${targetLabel}`,
+      `${ex.restSeconds}s Pause`,
+      ex.targetRir !== null ? `RIR ${ex.targetRir}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return `
+      <div class="plan-exercise-row">
+        <div class="plan-exercise-name">${escapeHtml(ex.exerciseName)}</div>
+        <div class="plan-exercise-params">${escapeHtml(params)}</div>
+        ${ex.note ? `<div class="plan-exercise-note muted">${escapeHtml(ex.note)}</div>` : ""}
+      </div>`;
+  }
+
+  function renderPlanFixedSession(s) {
+    const catLabel = COURSE_CATEGORIES.find((c) => c.value === s.category)?.label || s.category;
+    const intLabel = COURSE_INTENSITIES.find((i) => i.value === s.intensity)?.label || s.intensity;
+    return `
+      <div class="plan-fixed-session">
+        <span>${escapeHtml(s.name)}</span>
+        <span class="plan-fixed-session-meta">${escapeHtml(catLabel)} · ${escapeHtml(intLabel)}${s.time ? " · " + s.time : ""}</span>
+      </div>`;
+  }
+
+  function renderPlanDayCards(plan, recurringSessionsByDay) {
+    const strengthByWeekday = {};
+    plan.sessions.forEach((s) => (strengthByWeekday[s.weekday] = s));
+    const allDays = WEEKDAY_ORDER.filter((wd) => strengthByWeekday[wd] || recurringSessionsByDay[wd]?.length);
+
+    return allDays
+      .map((wd) => {
+        const fixed = recurringSessionsByDay[wd] || [];
+        const strength = strengthByWeekday[wd];
+        return `
+          <div class="plan-day-card">
+            <h3>${WEEKDAY_LABELS[wd]}</h3>
+            ${fixed.map(renderPlanFixedSession).join("")}
+            ${
+              strength
+                ? `
+              <div class="plan-strength-session">
+                <div class="plan-strength-session-header">${escapeHtml(strength.title)} · ${escapeHtml(strength.focus)}</div>
+                <div class="plan-strength-session-meta">${strength.estimatedDurationMinutes} Minuten</div>
+                <p class="plan-strength-session-rationale">${escapeHtml(strength.rationale)}</p>
+                ${strength.exercises.map(renderPlanExercise).join("")}
+              </div>`
+                : ""
+            }
+          </div>`;
+      })
+      .join("");
+  }
+
+  function renderPlanView(plan, onboardingData) {
+    const recurringSessionsByDay = {};
+    if (onboardingData?.hasRecurringSessions) {
+      for (const s of onboardingData.recurringSessions || []) {
+        (recurringSessionsByDay[s.weekday] ??= []).push(s);
+      }
+    }
+
+    planContent.innerHTML = `
+      <div class="plan-header">
+        <h2>${escapeHtml(plan.name)}</h2>
+        <p class="plan-meta">${escapeHtml(PLAN_GOAL_LABELS[plan.goal] || plan.goal)} · ${escapeHtml(plan.split)} · Version ${plan.version}</p>
+        <p class="plan-description">${escapeHtml(plan.description)}</p>
+        <p class="plan-rationale">${escapeHtml(plan.rationale)}</p>
+      </div>
+      ${renderPlanWeekStrip(plan, recurringSessionsByDay)}
+      ${renderPlanDayCards(plan, recurringSessionsByDay)}
+      <div class="plan-note-card">
+        <h4>Progression</h4>
+        <p>${escapeHtml(plan.progressionNote)}</p>
+      </div>
+      <div class="plan-note-card plan-safety-note">
+        <p>${escapeHtml(plan.safetyNote)}</p>
+      </div>`;
+
+    planEmpty.classList.add("hidden");
+    planError.classList.add("hidden");
+    planContent.classList.remove("hidden");
+  }
+
+  async function loadPlanView() {
+    planLoading.classList.remove("hidden");
+    planError.classList.add("hidden");
+    planEmpty.classList.add("hidden");
+    planContent.classList.add("hidden");
+    try {
+      const [planRes, onboardingRes] = await Promise.all([
+        apiFetch("/api/training-plan").catch((err) => (err.status === 404 ? null : Promise.reject(err))),
+        apiFetch("/api/onboarding"),
+      ]);
+      planLoading.classList.add("hidden");
+      if (!planRes?.plan) {
+        planEmpty.classList.remove("hidden");
+        return;
+      }
+      renderPlanView(planRes.plan, onboardingRes.onboarding_data);
+    } catch (err) {
+      console.error(err);
+      planLoading.classList.add("hidden");
+      planErrorText.textContent = "Dein Trainingsplan konnte nicht geladen werden.";
+      planError.classList.remove("hidden");
+    }
+  }
+
+  planRetryBtn.addEventListener("click", () => loadPlanView());
 
   // ── Onboarding (Status-Maschine + Persistenz; die meisten Frage-Screens
   //    folgen als eigene Arbeitspakete) ─────────────────────────────────────
@@ -1228,7 +1476,8 @@
   // Zwischenschritte per skipIf übersprungen werden).
   let onboardingReviewReturnStep = null;
   let onboardingReviewSectionEndIndex = null;
-  let creatingTrainingPlanPlaceholder = false;
+  let creatingTrainingPlan = false;
+  let trainingPlanIdempotencyKey = null;
 
   function stepIndexByKey(key) {
     return ONBOARDING_STEPS.findIndex((s) => s.key === key);
@@ -1351,6 +1600,7 @@
   ];
 
   async function loadSummaryStep() {
+    trainingPlanIdempotencyKey = null; // frischer Ansicht = frischer Versuch
     summaryLoading.classList.remove("hidden");
     summaryError.classList.add("hidden");
     summaryCardsEl.innerHTML = "";
@@ -1394,19 +1644,41 @@
     }
   });
 
-  async function handleCreateTrainingPlanPlaceholder() {
-    if (creatingTrainingPlanPlaceholder) return;
-    creatingTrainingPlanPlaceholder = true;
+  // idempotencyKey wird einmal pro Zusammenfassungs-Ansicht erzeugt (siehe
+  // loadSummaryStep) und bei Fehlern für Retry-Klicks wiederverwendet, damit
+  // ein Doppelklick oder ein erneuter Versuch nach einem Fehler serverseitig
+  // nie einen zweiten Plan erzeugt (siehe POST /api/training-plan/generate).
+  async function handleCreateTrainingPlan() {
+    if (creatingTrainingPlan) return;
+    creatingTrainingPlan = true;
     onboardingNextBtn.disabled = true;
-    summaryPlanStatus.textContent = "Trainingsplan wird erstellt … (Planerstellung folgt im nächsten Arbeitspaket)";
+    summaryPlanStatus.classList.remove("status-error");
+    summaryPlanStatus.textContent = "Trainingsplan wird erstellt … Das kann einen Moment dauern.";
     summaryPlanStatus.classList.remove("hidden");
+    if (!trainingPlanIdempotencyKey) {
+      trainingPlanIdempotencyKey = crypto.randomUUID();
+    }
     try {
-      // Platzhalter-Callback: das nächste Arbeitspaket hängt hier die eigentliche
-      // Planerstellung + Speicherung ein. onboarding_status wird bewusst erst NACH
-      // erfolgreicher Planerstellung auf "completed" gesetzt, nicht hier.
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await apiFetch("/api/training-plan/generate", {
+        method: "POST",
+        body: JSON.stringify({ idempotencyKey: trainingPlanIdempotencyKey }),
+      });
+      summaryPlanStatus.classList.add("hidden");
+      const storedUser = JSON.parse(localStorage.getItem("user"));
+      storedUser.onboarding_status = "completed";
+      localStorage.setItem("user", JSON.stringify(storedUser));
+      trainingPlanIdempotencyKey = null;
+      showPlanView();
+    } catch (err) {
+      console.error(err);
+      // err.message kommt bereits als verständliche, kategorie-spezifische
+      // Meldung vom Server (siehe classifyTrainingPlanError/TrainingPlanConflictError) -
+      // niemals rohe Datenbank-/OpenAI-Fehler im Frontend anzeigen.
+      summaryPlanStatus.textContent = err.message || "Der Trainingsplan konnte nicht erstellt werden. Bitte versuche es erneut.";
+      summaryPlanStatus.classList.add("status-error");
+      summaryPlanStatus.classList.remove("hidden");
     } finally {
-      creatingTrainingPlanPlaceholder = false;
+      creatingTrainingPlan = false;
       onboardingNextBtn.disabled = false;
     }
   }
@@ -1546,6 +1818,7 @@
   function showDashboard() {
     onboardingView.classList.add("hidden");
     settingsView.classList.add("hidden");
+    planView.classList.add("hidden");
     dashboardView.classList.remove("hidden");
     showBottomNav("dashboard");
     loadDays();
@@ -1554,6 +1827,7 @@
   function showSettingsView() {
     dashboardView.classList.add("hidden");
     onboardingView.classList.add("hidden");
+    planView.classList.add("hidden");
     settingsView.classList.remove("hidden");
     showBottomNav("settings");
   }
@@ -1561,6 +1835,7 @@
   function showOnboarding(user) {
     dashboardView.classList.add("hidden");
     settingsView.classList.add("hidden");
+    planView.classList.add("hidden");
     onboardingView.classList.remove("hidden");
     hideBottomNav();
     onboardingStep = user.onboarding_status === "in_progress" ? user.onboarding_step : 0;
@@ -1904,11 +2179,11 @@
     const step = ONBOARDING_STEPS[onboardingStep] || ONBOARDING_STEPS[0];
 
     // Die Zusammenfassung ist der letzte Schritt, löst aber bewusst NICHT den
-    // normalen "Fertig"-Ablauf aus (siehe handleCreateTrainingPlanPlaceholder):
+    // normalen "Fertig"-Ablauf aus (siehe handleCreateTrainingPlan):
     // onboarding_status wird erst nach erfolgreicher Planerstellung auf
     // completed gesetzt, nicht schon beim Erreichen dieses Schritts.
     if (step.type === "summary") {
-      await handleCreateTrainingPlanPlaceholder();
+      await handleCreateTrainingPlan();
       return;
     }
 
