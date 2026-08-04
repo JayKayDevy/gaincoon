@@ -293,6 +293,22 @@
   }
   .pref-btn.pref-preferred.active { background: var(--accent); color: #111; border-color: var(--accent); }
   .pref-btn.pref-avoid.active { background: var(--danger); color: #111; border-color: var(--danger); }
+
+  #summary-extra { margin-top: 16px; }
+  .summary-card {
+    background: rgba(23, 23, 27, 0.85);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .summary-card-header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .summary-card-header h3 { margin: 0; font-size: 0.9rem; }
+  .summary-card-content { color: var(--text); font-size: 0.88rem; margin: 8px 0 0; line-height: 1.4; white-space: pre-line; }
+  .summary-edit-btn { width: auto; margin: 0; padding: 0; font-size: 0.8rem; flex-shrink: 0; }
+  #summary-plan-status { margin-top: 14px; text-align: center; }
   .limitation-detail-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
   .limitation-detail-block .choice-btn { font-size: 0.85rem; padding: 10px 12px; }
   .limitation-detail-block label { margin: 12px 0 6px; }
@@ -461,6 +477,16 @@
       <div id="exercise-prefs-list"></div>
     </div>
 
+    <div id="summary-extra" class="hidden">
+      <p id="summary-loading" class="muted hidden">Lade deine Angaben…</p>
+      <div id="summary-error" class="error error-inline hidden">
+        <span id="summary-error-text"></span>
+        <button type="button" id="summary-retry-btn" class="link">Erneut versuchen</button>
+      </div>
+      <div id="summary-cards"></div>
+      <p id="summary-plan-status" class="muted hidden"></p>
+    </div>
+
     <div class="onboarding-nav-row">
       <button type="button" id="onboarding-back-btn" class="secondary btn-small hidden">Zurück</button>
       <button type="button" id="onboarding-next-btn">Weiter</button>
@@ -597,6 +623,14 @@
   const exercisePrefsErrorText = document.getElementById("exercise-prefs-error-text");
   const exercisePrefsRetryBtn = document.getElementById("exercise-prefs-retry-btn");
   const exercisePrefsListEl = document.getElementById("exercise-prefs-list");
+
+  const summaryExtra = document.getElementById("summary-extra");
+  const summaryLoading = document.getElementById("summary-loading");
+  const summaryError = document.getElementById("summary-error");
+  const summaryErrorText = document.getElementById("summary-error-text");
+  const summaryRetryBtn = document.getElementById("summary-retry-btn");
+  const summaryCardsEl = document.getElementById("summary-cards");
+  const summaryPlanStatus = document.getElementById("summary-plan-status");
 
   const daysList = document.getElementById("days-list");
   const emptyState = document.getElementById("empty-state");
@@ -1149,6 +1183,199 @@
     }
   }
 
+  // ── Zusammenfassung ──────────────────────────────────────────────────────
+  // "Bearbeiten" springt zu einem Schritt (oder einer zusammengehörigen Kette
+  // von Schritten, z.B. Trainingsort -> ggf. Studio-Ausstattung -> ggf. Geräte)
+  // und kehrt danach automatisch zur Zusammenfassung zurück, statt den
+  // restlichen linearen Wizard erneut zu durchlaufen. onboardingReviewReturnStep
+  // ist das Ziel (die Zusammenfassung), onboardingReviewSectionEndIndex der
+  // letzte Schritt der bearbeiteten Kette (statischer Array-Index, auch wenn
+  // Zwischenschritte per skipIf übersprungen werden).
+  let onboardingReviewReturnStep = null;
+  let onboardingReviewSectionEndIndex = null;
+  let creatingTrainingPlanPlaceholder = false;
+
+  function stepIndexByKey(key) {
+    return ONBOARDING_STEPS.findIndex((s) => s.key === key);
+  }
+  function stepIndexByType(type) {
+    return ONBOARDING_STEPS.findIndex((s) => s.type === type);
+  }
+  function choiceLabel(key, value) {
+    const step = ONBOARDING_STEPS.find((s) => s.key === key);
+    return step?.choices?.find((c) => c.value === value)?.label;
+  }
+  function choiceLabels(key, values) {
+    const step = ONBOARDING_STEPS.find((s) => s.key === key);
+    return (values || []).map((v) => step?.choices?.find((c) => c.value === v)?.label || v);
+  }
+
+  function formatLocationSummary() {
+    const locationLabel = choiceLabel("location", onboardingData.location) || "Nicht angegeben";
+    if (onboardingData.location === "gym") {
+      if (onboardingData.gymFullyEquipped === "full") return `${locationLabel} · vollständig ausgestattet`;
+      if (onboardingData.gymFullyEquipped === "limited") {
+        const eq = choiceLabels("equipment", onboardingData.equipment);
+        return `${locationLabel} · eingeschränkt ausgestattet${eq.length ? " (" + eq.join(", ") + ")" : ""}`;
+      }
+      return locationLabel;
+    }
+    const eq = choiceLabels("equipment", onboardingData.equipment);
+    return eq.length ? `${locationLabel} · ${eq.join(", ")}` : locationLabel;
+  }
+
+  function formatLimitationsSummary() {
+    if (!onboardingData.hasLimitations || !onboardingData.limitationAreas?.length) {
+      return "Keine Einschränkungen angegeben";
+    }
+    return onboardingData.limitationAreas
+      .map((area) => {
+        const areaLabel = LIMITATION_AREAS.find((a) => a.value === area)?.label || area;
+        const detail = onboardingData.limitationDetails?.[area];
+        const handlingLabel = LIMITATION_HANDLING_OPTIONS.find((h) => h.value === detail?.handling)?.label;
+        let line = areaLabel;
+        if (handlingLabel) line += ` – ${handlingLabel}`;
+        if (detail?.note) line += ` ("${detail.note}")`;
+        return line;
+      })
+      .join("\n");
+  }
+
+  function formatRecurringSessionsSummary() {
+    if (!onboardingData.hasRecurringSessions || !onboardingData.recurringSessions?.length) {
+      return "Keine festen Einheiten";
+    }
+    return onboardingData.recurringSessions
+      .map((s) => {
+        const catLabel = COURSE_CATEGORIES.find((c) => c.value === s.category)?.label || s.category;
+        const intLabel = COURSE_INTENSITIES.find((i) => i.value === s.intensity)?.label || s.intensity;
+        return `${s.name} – ${WEEKDAY_LABELS[s.weekday]}, ${s.durationMinutes} Min, ${catLabel}, ${intLabel}${s.time ? ", " + s.time : ""}`;
+      })
+      .join("\n");
+  }
+
+  async function formatExercisePreferencesSummary() {
+    if (!exerciseCatalogCache) {
+      exerciseCatalogCache = await apiFetch("/api/exercise-catalog");
+    }
+    const prefs = await apiFetch("/api/exercise-preferences");
+    const nameById = new Map(exerciseCatalogCache.map((ex) => [ex.id, ex.name]));
+    const preferred = prefs.filter((p) => p.preference === "preferred").map((p) => nameById.get(p.exerciseId)).filter(Boolean);
+    const avoid = prefs.filter((p) => p.preference === "avoid").map((p) => nameById.get(p.exerciseId)).filter(Boolean);
+    if (!preferred.length && !avoid.length) return "Keine besonderen Übungsvorlieben";
+    const parts = [];
+    if (preferred.length) parts.push(`Bevorzugt: ${preferred.join(", ")}`);
+    if (avoid.length) parts.push(`Vermeiden: ${avoid.join(", ")}`);
+    return parts.join("\n");
+  }
+
+  const SUMMARY_SECTIONS = [
+    {
+      id: "goal", title: "Trainingsziel",
+      start: () => stepIndexByKey("goal"), end: () => stepIndexByKey("goal"),
+      format: () => choiceLabel("goal", onboardingData.goal) || "Nicht angegeben",
+    },
+    {
+      id: "weekdays", title: "Trainingstage und Wochentage",
+      start: () => stepIndexByKey("weekdays"), end: () => stepIndexByKey("weekdays"),
+      format: () => {
+        const l = choiceLabels("weekdays", onboardingData.weekdays);
+        return l.length ? l.join(", ") : "Nicht angegeben";
+      },
+    },
+    {
+      id: "duration", title: "Trainingsdauer",
+      start: () => stepIndexByKey("sessionDurationMinutes"), end: () => stepIndexByKey("sessionDurationMinutes"),
+      format: () => choiceLabel("sessionDurationMinutes", onboardingData.sessionDurationMinutes) || "Nicht angegeben",
+    },
+    {
+      id: "location", title: "Trainingsort und Ausstattung",
+      start: () => stepIndexByKey("location"), end: () => stepIndexByKey("equipment"),
+      format: formatLocationSummary,
+    },
+    {
+      id: "experience", title: "Trainingserfahrung",
+      start: () => stepIndexByKey("strengthTrainingExperience"), end: () => stepIndexByKey("strengthTrainingExperience"),
+      format: () => choiceLabel("strengthTrainingExperience", onboardingData.strengthTrainingExperience) || "Nicht angegeben",
+    },
+    {
+      id: "limitations", title: "Beschwerden und körperliche Einschränkungen",
+      start: () => stepIndexByType("limitations"), end: () => stepIndexByType("limitations"),
+      format: formatLimitationsSummary,
+    },
+    {
+      id: "recurring-sessions", title: "Kurse und feste Trainingseinheiten",
+      start: () => stepIndexByType("recurring-sessions"), end: () => stepIndexByType("recurring-sessions"),
+      format: formatRecurringSessionsSummary,
+    },
+    {
+      id: "exercise-preferences", title: "Übungsvorlieben",
+      start: () => stepIndexByType("exercise-preferences"), end: () => stepIndexByType("exercise-preferences"),
+      format: null, // async, siehe formatExercisePreferencesSummary
+    },
+  ];
+
+  async function loadSummaryStep() {
+    summaryLoading.classList.remove("hidden");
+    summaryError.classList.add("hidden");
+    summaryCardsEl.innerHTML = "";
+    try {
+      const exercisePrefsText = await formatExercisePreferencesSummary();
+      summaryLoading.classList.add("hidden");
+      summaryCardsEl.innerHTML = SUMMARY_SECTIONS.map((section) => {
+        const content = section.format ? section.format() : exercisePrefsText;
+        return `
+          <div class="summary-card">
+            <div class="summary-card-header">
+              <h3>${escapeHtml(section.title)}</h3>
+              <button type="button" class="link summary-edit-btn" data-section-id="${section.id}">Bearbeiten</button>
+            </div>
+            <p class="summary-card-content">${escapeHtml(content)}</p>
+          </div>`;
+      }).join("");
+    } catch (err) {
+      console.error(err);
+      summaryLoading.classList.add("hidden");
+      summaryErrorText.textContent = "Deine Angaben konnten nicht vollständig geladen werden.";
+      summaryError.classList.remove("hidden");
+    }
+  }
+
+  summaryRetryBtn.addEventListener("click", () => loadSummaryStep());
+
+  summaryCardsEl.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".summary-edit-btn");
+    if (!btn) return;
+    const section = SUMMARY_SECTIONS.find((s) => s.id === btn.dataset.sectionId);
+    if (!section) return;
+    onboardingReviewReturnStep = onboardingStep;
+    onboardingReviewSectionEndIndex = section.end();
+    try {
+      const result = await persistOnboardingStep(section.start(), false);
+      onboardingStep = result.onboarding_step;
+      renderOnboardingStep();
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  async function handleCreateTrainingPlanPlaceholder() {
+    if (creatingTrainingPlanPlaceholder) return;
+    creatingTrainingPlanPlaceholder = true;
+    onboardingNextBtn.disabled = true;
+    summaryPlanStatus.textContent = "Trainingsplan wird erstellt … (Planerstellung folgt im nächsten Arbeitspaket)";
+    summaryPlanStatus.classList.remove("hidden");
+    try {
+      // Platzhalter-Callback: das nächste Arbeitspaket hängt hier die eigentliche
+      // Planerstellung + Speicherung ein. onboarding_status wird bewusst erst NACH
+      // erfolgreicher Planerstellung auf "completed" gesetzt, nicht hier.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    } finally {
+      creatingTrainingPlanPlaceholder = false;
+      onboardingNextBtn.disabled = false;
+    }
+  }
+
   const ONBOARDING_STEPS = [
     { title: "Willkommen bei Gaincoon!", text: "Lass uns dein Training gemeinsam planen." },
     {
@@ -1260,7 +1487,11 @@
       text: "Markiere deine Favoriten oder Übungen, die Gaincoon bei deinem Trainingsplan möglichst vermeiden soll. Du musst nicht jede Übung bewerten.",
       type: "exercise-preferences",
     },
-    { title: "Zusammenfassung", text: "(folgt als nächstes Arbeitspaket)" },
+    {
+      title: "Bereit für deinen Trainingsplan?",
+      text: "Prüfe noch einmal deine Angaben. Gaincoon erstellt daraus anschließend deinen persönlichen Trainingsplan.",
+      type: "summary",
+    },
   ];
 
   let onboardingStep = 0;
@@ -1299,6 +1530,8 @@
     hideBottomNav();
     onboardingStep = user.onboarding_status === "in_progress" ? user.onboarding_step : 0;
     onboardingData = user.onboarding_data || {};
+    onboardingReviewReturnStep = null;
+    onboardingReviewSectionEndIndex = null;
     renderOnboardingStep();
   }
 
@@ -1306,8 +1539,16 @@
     const step = ONBOARDING_STEPS[onboardingStep] || ONBOARDING_STEPS[0];
     onboardingStepTitle.textContent = step.title;
     onboardingStepText.textContent = step.text;
-    onboardingNextBtn.textContent =
-      onboardingStep === ONBOARDING_STEPS.length - 1 ? "Fertig" : "Weiter";
+
+    if (step.type === "summary") {
+      onboardingNextBtn.textContent = "Trainingsplan erstellen";
+    } else if (onboardingReviewReturnStep !== null) {
+      const computedNext = nextVisibleStepIndex(onboardingStep);
+      onboardingNextBtn.textContent =
+        computedNext > onboardingReviewSectionEndIndex ? "Zurück zur Zusammenfassung" : "Weiter";
+    } else {
+      onboardingNextBtn.textContent = onboardingStep === ONBOARDING_STEPS.length - 1 ? "Fertig" : "Weiter";
+    }
 
     onboardingBackBtn.classList.toggle("hidden", onboardingStep === 0);
 
@@ -1322,6 +1563,13 @@
       onboardingProgressLabel.classList.remove("hidden");
       onboardingProgressBar.classList.remove("hidden");
     }
+
+    // Alle Step-spezifischen "Extra"-Container zunächst verstecken; jeder Branch
+    // unten zeigt nur seinen eigenen wieder an. Vermeidet, dass jeder neue Step-Typ
+    // die Container aller anderen Typen einzeln kennen und ausblenden muss.
+    recurringSessionsExtra.classList.add("hidden");
+    exercisePrefsExtra.classList.add("hidden");
+    summaryExtra.classList.add("hidden");
 
     if (step.type === "choice") {
       onboardingChoices.classList.remove("hidden");
@@ -1546,15 +1794,19 @@
     } else if (step.type === "exercise-preferences") {
       onboardingChoices.classList.add("hidden");
       onboardingChoices.innerHTML = "";
-      recurringSessionsExtra.classList.add("hidden");
       exercisePrefsExtra.classList.remove("hidden");
       exercisePrefsSearchInput.value = "";
       loadExercisePreferencesStep();
+    } else if (step.type === "summary") {
+      onboardingChoices.classList.add("hidden");
+      onboardingChoices.innerHTML = "";
+      summaryExtra.classList.remove("hidden");
+      onboardingNextBtn.disabled = false;
+      summaryPlanStatus.classList.add("hidden");
+      loadSummaryStep();
     } else {
       onboardingChoices.classList.add("hidden");
       onboardingChoices.innerHTML = "";
-      recurringSessionsExtra.classList.add("hidden");
-      exercisePrefsExtra.classList.add("hidden");
       onboardingNextBtn.disabled = false;
     }
   }
@@ -1615,23 +1867,38 @@
 
   onboardingNextBtn.addEventListener("click", async () => {
     const step = ONBOARDING_STEPS[onboardingStep] || ONBOARDING_STEPS[0];
-    const isLast = onboardingStep === ONBOARDING_STEPS.length - 1;
+
+    // Die Zusammenfassung ist der letzte Schritt, löst aber bewusst NICHT den
+    // normalen "Fertig"-Ablauf aus (siehe handleCreateTrainingPlanPlaceholder):
+    // onboarding_status wird erst nach erfolgreicher Planerstellung auf
+    // completed gesetzt, nicht schon beim Erreichen dieses Schritts.
+    if (step.type === "summary") {
+      await handleCreateTrainingPlanPlaceholder();
+      return;
+    }
+
     try {
       // Nur speichern, wenn Katalog + bestehende Vorlieben erfolgreich geladen wurden -
       // sonst würde ein leerer Entwurf versehentlich bereits gespeicherte Vorlieben löschen.
       if (step.type === "exercise-preferences" && exercisePreferencesReady) {
         await saveExercisePreferences();
       }
-      const result = await persistOnboardingStep(
-        isLast ? onboardingStep : nextVisibleStepIndex(onboardingStep),
-        isLast
-      );
-      if (isLast) {
-        showDashboard();
-      } else {
-        onboardingStep = result.onboarding_step;
-        renderOnboardingStep();
+
+      const computedNext = nextVisibleStepIndex(onboardingStep);
+      let targetStep = computedNext;
+      // Im Bearbeiten-Modus (von der Zusammenfassung aus gestartet): sobald der
+      // bearbeitete Abschnitt fertig ist (auch wenn dessen letzter Schritt per
+      // skipIf übersprungen wurde), zurück zur Zusammenfassung statt normal
+      // weiter im linearen Wizard.
+      if (onboardingReviewReturnStep !== null && computedNext > onboardingReviewSectionEndIndex) {
+        targetStep = onboardingReviewReturnStep;
+        onboardingReviewReturnStep = null;
+        onboardingReviewSectionEndIndex = null;
       }
+
+      const result = await persistOnboardingStep(targetStep, false);
+      onboardingStep = result.onboarding_step;
+      renderOnboardingStep();
     } catch (err) {
       console.error(err);
     }
